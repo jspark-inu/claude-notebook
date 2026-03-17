@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workspace Viewer</title>
+    <link rel="stylesheet" href="/style.css">
+    <!-- marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@4/marked.min.js"></script>
+    <!-- highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
+</head>
+<body>
+    <div class="layout">
+        <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">&#9776;</button>
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>Workspace</h2>
+                <div class="sidebar-actions">
+                    <button class="terminal-btn" id="terminalBtn" aria-label="Open Terminal" title="Open Terminal">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.146 3.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L4.793 6.5 2.146 3.854a.5.5 0 0 1 0-.708zM6 10h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1z"/></svg>
+                    </button>
+                    <button class="sidebar-close" id="sidebarClose" aria-label="Close sidebar">&times;</button>
+                </div>
+            </div>
+            <div class="tree" id="tree">
+                <div class="loading">Loading...</div>
+            </div>
+        </aside>
+        <div class="divider" id="divider"></div>
+        <main class="content" id="content">
+            <div class="welcome">
+                <h1>Workspace Viewer</h1>
+                <p>Select a file from the sidebar to view its contents.</p>
+            </div>
+        </main>
+    </div>
+    <script src="/app.js"></script>
+</body>
+</html>
