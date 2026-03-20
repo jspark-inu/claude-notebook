@@ -757,30 +757,30 @@
             terminalContainer.innerHTML = '';
 
             // === Scroll lock system ===
-            // Instead of trying to fix scroll after each write(),
-            // we run a RAF loop that continuously enforces the correct scroll position.
+            // RAF loop enforces scroll position, but pauses during user interaction
+            // so the browser can process wheel/touch scrolling naturally.
             let scrollMode = 'follow';  // 'follow' = stick to bottom, 'locked' = stay at user position
             let lockedScrollTop = 0;
-            let ignoreScrollEvents = false;  // flag to ignore programmatic scroll changes
+            let userInteracting = false;  // true while user is actively scrolling
+            let interactionTimer = null;
 
             function scrollEnforce() {
-                const viewport = terminalContainer.querySelector('.xterm-viewport');
-                if (viewport) {
-                    if (scrollMode === 'follow') {
-                        const target = viewport.scrollHeight - viewport.clientHeight;
-                        if (Math.abs(viewport.scrollTop - target) > 5) {
-                            ignoreScrollEvents = true;
-                            viewport.scrollTop = target;
-                            ignoreScrollEvents = false;
+                // Don't enforce while user is actively scrolling
+                if (!userInteracting) {
+                    const viewport = terminalContainer.querySelector('.xterm-viewport');
+                    if (viewport) {
+                        if (scrollMode === 'follow') {
+                            const target = viewport.scrollHeight - viewport.clientHeight;
+                            if (Math.abs(viewport.scrollTop - target) > 5) {
+                                viewport.scrollTop = target;
+                            }
+                        } else if (scrollMode === 'locked') {
+                            if (Math.abs(viewport.scrollTop - lockedScrollTop) > 5) {
+                                viewport.scrollTop = lockedScrollTop;
+                            }
                         }
-                    } else if (scrollMode === 'locked') {
-                        if (Math.abs(viewport.scrollTop - lockedScrollTop) > 5) {
-                            ignoreScrollEvents = true;
-                            viewport.scrollTop = lockedScrollTop;
-                            ignoreScrollEvents = false;
-                        }
+                        updateScrollbar();
                     }
-                    updateScrollbar();
                 }
                 scrollLockRafId = requestAnimationFrame(scrollEnforce);
             }
@@ -818,30 +818,25 @@
                 fitAddon.fit();
                 const viewport = terminalContainer.querySelector('.xterm-viewport');
                 if (viewport) {
-                    // Detect user scroll intent (mouse wheel / touch)
-                    viewport.addEventListener('wheel', () => {
-                        const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 30;
-                        if (atBottom) {
-                            scrollMode = 'follow';
-                        } else {
-                            scrollMode = 'locked';
-                            lockedScrollTop = viewport.scrollTop;
-                        }
-                    }, { passive: true });
-                    viewport.addEventListener('touchmove', () => {
-                        const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 30;
-                        if (atBottom) {
-                            scrollMode = 'follow';
-                        } else {
-                            scrollMode = 'locked';
-                            lockedScrollTop = viewport.scrollTop;
-                        }
-                    }, { passive: true });
-                    // Also track scroll events but only from user interaction
-                    viewport.addEventListener('scroll', () => {
-                        if (ignoreScrollEvents) return;
-                        updateScrollbar();
-                    });
+                    // When user starts scrolling, pause enforcement to let browser handle it
+                    function onUserScroll() {
+                        userInteracting = true;
+                        scrollMode = 'locked';
+                        if (interactionTimer) clearTimeout(interactionTimer);
+                        // After user stops scrolling, check position and resume enforcement
+                        interactionTimer = setTimeout(() => {
+                            userInteracting = false;
+                            const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 30;
+                            if (atBottom) {
+                                scrollMode = 'follow';
+                            } else {
+                                lockedScrollTop = viewport.scrollTop;
+                            }
+                        }, 200);
+                    }
+                    viewport.addEventListener('wheel', onUserScroll, { passive: true });
+                    viewport.addEventListener('touchmove', onUserScroll, { passive: true });
+                    viewport.addEventListener('scroll', () => { updateScrollbar(); });
                     // Start scroll enforcement loop
                     scrollMode = 'follow';
                     scrollLockRafId = requestAnimationFrame(scrollEnforce);
