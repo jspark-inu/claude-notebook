@@ -745,6 +745,8 @@
 
             // Create xterm
             terminalContainer.innerHTML = '';
+            let userScrolledUp = false;  // track if user manually scrolled away from bottom
+
             currentTerm = new Terminal({
                 cursorBlink: true,
                 fontSize: 14,
@@ -764,7 +766,7 @@
                     white: '#d4d4d4',
                 },
                 scrollback: 10000,
-                smoothScrollDuration: 100,
+                smoothScrollDuration: 0,
                 allowProposedApi: true,
             });
 
@@ -776,9 +778,16 @@
 
             setTimeout(() => {
                 fitAddon.fit();
-                // Hook scroll for custom scrollbar
+                // Hook scroll for custom scrollbar + track user scroll intent
                 const viewport = terminalContainer.querySelector('.xterm-viewport');
-                if (viewport) viewport.addEventListener('scroll', updateScrollbar);
+                if (viewport) {
+                    viewport.addEventListener('scroll', () => {
+                        updateScrollbar();
+                        // Detect if user scrolled away from bottom
+                        const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 30;
+                        userScrolledUp = !atBottom;
+                    });
+                }
                 updateScrollbar();
             }, 50);
 
@@ -798,7 +807,20 @@
                 try {
                     const msg = JSON.parse(event.data);
                     if (msg[0] === 'stdout') {
-                        currentTerm.write(msg[1]);
+                        const viewport = terminalContainer.querySelector('.xterm-viewport');
+                        const savedScrollTop = viewport ? viewport.scrollTop : 0;
+                        currentTerm.write(msg[1], () => {
+                            // After write completes, fix scroll position
+                            if (!viewport) return;
+                            if (userScrolledUp) {
+                                // User was reading history — restore their scroll position
+                                viewport.scrollTop = savedScrollTop;
+                            } else {
+                                // User was at bottom — keep following output
+                                viewport.scrollTop = viewport.scrollHeight;
+                            }
+                            updateScrollbar();
+                        });
                     } else if (msg[0] === 'disconnect') {
                         statusDot.classList.add('disconnected');
                     }
