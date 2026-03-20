@@ -109,6 +109,7 @@ class WorkspaceTerminalHandler(IPythonHandler):
         )
         html = html.replace('</head>', inject + '\n</head>')
         self.set_header("Content-Type", "text/html; charset=utf-8")
+        self.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.finish(html)
 
 

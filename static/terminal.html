@@ -857,17 +857,37 @@
                 }
             });
 
-            // Handle resize
+            // Handle resize (debounced to prevent scroll thrashing)
+            let resizeTimer = null;
             const resizeObserver = new ResizeObserver(() => {
-                if (fitAddon && currentTerm) {
-                    fitAddon.fit();
-                    if (currentWs && currentWs.readyState === WebSocket.OPEN) {
-                        const dims = fitAddon.proposeDimensions();
-                        if (dims) {
-                            currentWs.send(JSON.stringify(["set_size", dims.rows, dims.cols]));
+                if (resizeTimer) clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    if (fitAddon && currentTerm) {
+                        const viewport = terminalContainer.querySelector('.xterm-viewport');
+                        const savedTop = viewport ? viewport.scrollTop : 0;
+                        const wasAtBottom = viewport
+                            ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 30
+                            : true;
+                        fitAddon.fit();
+                        // Restore scroll after fit recalculates viewport
+                        if (viewport) {
+                            requestAnimationFrame(() => {
+                                if (wasAtBottom) {
+                                    viewport.scrollTop = viewport.scrollHeight;
+                                } else {
+                                    viewport.scrollTop = savedTop;
+                                }
+                                updateScrollbar();
+                            });
+                        }
+                        if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+                            const dims = fitAddon.proposeDimensions();
+                            if (dims) {
+                                currentWs.send(JSON.stringify(["set_size", dims.rows, dims.cols]));
+                            }
                         }
                     }
-                }
+                }, 100);
             });
             resizeObserver.observe(terminalContainer);
         }
