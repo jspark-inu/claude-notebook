@@ -836,9 +836,13 @@
                     let scrollTimeout = null;
                     viewport.addEventListener('wheel', (e) => {
                         const current = nativeGet.call(viewport);
-                        if (!followMode) {
-                            nativeSet.call(viewport, current - e.deltaY * (e.deltaMode === 1 ? 20 : 1));
+                        // Scrolling up → immediately lock
+                        if (e.deltaY < 0) {
+                            followMode = false;
                         }
+                        // Apply wheel delta manually (works in both modes)
+                        nativeSet.call(viewport, current - e.deltaY * (e.deltaMode === 1 ? 20 : 1));
+                        // After scrolling stops, check if back at bottom
                         clearTimeout(scrollTimeout);
                         scrollTimeout = setTimeout(() => {
                             const atBottom = viewport.scrollHeight - nativeGet.call(viewport) - viewport.clientHeight < 30;
