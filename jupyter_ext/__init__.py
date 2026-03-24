@@ -56,7 +56,7 @@ def get_directory_listing(dir_path: Path, rel_base: Path) -> list:
     except PermissionError:
         return items
     for entry in entries:
-        if entry.name.startswith('.') and entry.name not in ('.bkit', '.claude'):
+        if entry.name.startswith('.') and entry.name not in ('.bkit',):
             continue
         if entry.name in SKIP_DIRS:
             continue
