@@ -493,41 +493,43 @@
         let fitAddon = null;
         let terminalData = {};  // name -> {display_name, last_activity}
 
-        // Local display names (persisted in localStorage, works with Jupyter)
-        const STORAGE_KEY = 'workspace-viewer-terminal-names';
-        function getLocalNames() {
-            try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
+        // Server-synced display names (shared across all devices)
+        const NAMES_API = BASE + '/api/terminal-names';
+        let serverNames = {};
+
+        async function fetchServerNames() {
+            try {
+                const res = await fetch(NAMES_API);
+                if (res.ok) serverNames = await res.json();
+            } catch (e) { /* ignore */ }
         }
-        function setLocalName(name, displayName) {
-            const names = getLocalNames();
-            names[name] = displayName;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(names));
+        async function setServerName(name, displayName) {
+            serverNames[name] = displayName;
+            try {
+                await fetch(NAMES_API, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-XSRFToken': getXsrf() },
+                    body: JSON.stringify({ name, display_name: displayName }),
+                });
+            } catch (e) { /* ignore */ }
         }
-        function removeLocalName(name) {
-            const names = getLocalNames();
-            delete names[name];
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(names));
-        }
-        function cleanLocalNames(activeNames) {
-            // Remove stored names for terminals that no longer exist
-            const names = getLocalNames();
-            let changed = false;
-            for (const key of Object.keys(names)) {
-                if (!activeNames.has(key)) {
-                    delete names[key];
-                    changed = true;
-                }
-            }
-            if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(names));
+        async function removeServerName(name) {
+            delete serverNames[name];
+            try {
+                await fetch(NAMES_API + '?name=' + encodeURIComponent(name), {
+                    method: 'DELETE',
+                    headers: { 'X-XSRFToken': getXsrf() },
+                });
+            } catch (e) { /* ignore */ }
         }
         function getDisplayName(t) {
-            const local = getLocalNames()[t.name];
-            if (local) return local;
+            if (serverNames[t.name]) return serverNames[t.name];
             return t.display_name || ('Terminal ' + t.name);
         }
 
         // XSRF token (needed for Jupyter)
         function getXsrf() {
+            if (window.__XSRF_TOKEN) return window.__XSRF_TOKEN;
             const m = document.cookie.match(/(?:^|;\s*)_xsrf=([^;]*)/);
             return m ? decodeURIComponent(m[1]) : '';
         }
@@ -563,7 +565,7 @@
                     terminalData[t.name] = t;
                     activeNames.add(t.name);
                 });
-                cleanLocalNames(activeNames);
+                await fetchServerNames();
                 renderList(data);
             } catch (e) {
                 termList.innerHTML = '<div class="term-empty">Error loading terminals</div>';
@@ -647,7 +649,7 @@
 
         async function renameTerminal(name, displayName) {
             // Save locally (always works, even with Jupyter)
-            setLocalName(name, displayName);
+            await setServerName(name, displayName);
             // Try API rename too (works with standalone server)
             try {
                 await fetch(JUPYTER + '/api/terminals/' + name, {
@@ -684,20 +686,25 @@
         // Create new terminal
         newTermBtn.addEventListener('click', async () => {
             try {
+                const xsrf = getXsrf();
                 const res = await fetch(JUPYTER + '/api/terminals', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-XSRFToken': getXsrf(),
+                        'X-XSRFToken': xsrf,
                     },
+                    credentials: 'same-origin',
                 });
-                if (!res.ok) throw new Error('Failed to create');
+                if (!res.ok) {
+                    const body = await res.text().catch(() => '');
+                    throw new Error(res.status + ' ' + body);
+                }
                 const data = await res.json();
                 await loadTerminals();
                 connectTerminal(data.name);
                 closeSidebar();
             } catch (e) {
-                alert('Failed to create terminal');
+                alert('Failed to create terminal: ' + e.message);
             }
         });
 
@@ -708,7 +715,7 @@
                     method: 'DELETE',
                     headers: { 'X-XSRFToken': getXsrf() },
                 });
-                removeLocalName(name);
+                await removeServerName(name);
                 if (name === currentName) {
                     disconnect();
                     currentName = null;
@@ -901,10 +908,13 @@
                 }
             }
             if (e.key === 'c' && e.ctrlKey) {
-                e.preventDefault();
-                if (currentWs && currentWs.readyState === WebSocket.OPEN) {
-                    currentWs.send(JSON.stringify(["stdin", "\x03"]));
+                const hasSelection = termInputField.selectionStart !== termInputField.selectionEnd;
+                if (hasSelection) {
+                    // Allow default copy behavior
+                    return;
                 }
+                // No selection: clear input field only, do NOT send interrupt to terminal
+                e.preventDefault();
                 termInputField.value = '';
                 autoResizeInput();
             }

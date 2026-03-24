@@ -69,6 +69,51 @@ def get_directory_tree(dir_path: Path, rel_base: Path) -> list:
     return items
 
 
+NAMES_FILE = Path(__file__).parent.parent / ".terminal_names.json"
+
+
+def _read_names():
+    try:
+        return json.loads(NAMES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_names(data):
+    NAMES_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+class TerminalNamesHandler(IPythonHandler):
+    @web.authenticated
+    def get(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.finish(json.dumps(_read_names(), ensure_ascii=False))
+
+    @web.authenticated
+    def put(self):
+        body = json.loads(self.request.body)
+        name = body.get("name")
+        display_name = body.get("display_name")
+        if not name or not display_name:
+            raise web.HTTPError(400, "name and display_name required")
+        names = _read_names()
+        names[name] = display_name
+        _write_names(names)
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.finish(json.dumps({"ok": True}))
+
+    @web.authenticated
+    def delete(self):
+        name = self.get_argument("name", None)
+        if not name:
+            raise web.HTTPError(400, "name required")
+        names = _read_names()
+        names.pop(name, None)
+        _write_names(names)
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.finish(json.dumps({"ok": True}))
+
+
 class WorkspaceViewerHandler(IPythonHandler):
     @web.authenticated
     def get(self):
@@ -89,10 +134,14 @@ class WorkspaceTerminalHandler(IPythonHandler):
         base_url = self.settings.get("base_url", "/")
         viewer_base = ujoin(base_url, "workspace-viewer")
         html = STATIC_DIR.joinpath("terminal.html").read_text(encoding="utf-8")
+        xsrf = self.xsrf_token
+        if isinstance(xsrf, bytes):
+            xsrf = xsrf.decode("utf-8")
         inject = (
             f'<script>'
             f'window.__VIEWER_BASE = "{viewer_base}";'
             f'window.__JUPYTER_BASE = "{base_url.rstrip("/")}";'
+            f'window.__XSRF_TOKEN = {json.dumps(xsrf)};'
             f'</script>'
         )
         html = html.replace('</head>', inject + '\n</head>')
@@ -168,6 +217,7 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/workspace-viewer/static/(.+)"), WorkspaceStaticHandler),
         (ujoin(base_url, r"/workspace-viewer/api/tree"), WorkspaceTreeHandler),
         (ujoin(base_url, r"/workspace-viewer/api/file"), WorkspaceFileHandler),
+        (ujoin(base_url, r"/workspace-viewer/api/terminal-names"), TerminalNamesHandler),
     ]
     nb_app.web_app.add_handlers(".*$", handlers)
     nb_app.log.info("Workspace Viewer extension loaded at %s/workspace-viewer (workspace: %s)", base_url, workspace)
