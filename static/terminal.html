@@ -1559,11 +1559,11 @@
         });
 
         // Snapshot xterm buffer → parse into sent/received bubbles
-        // Strategy:
-        //   ❯ line → start "sent" block (text after ❯)
-        //   Subsequent non-blank lines → continue "sent" (multi-line input)
-        //   Blank line → end "sent", switch to "received"
-        //   All lines stay "received" until next ❯
+        // Strategy using newlines + leading spaces:
+        //   ❯ line → start "sent" mode (text after ❯)
+        //   In sent mode: lines with NO leading space → continue sent
+        //   In sent mode: blank line OR line WITH leading space → end sent, start received
+        //   In received mode: stay until next ❯
         function snapshotBuffer() {
             if (!currentTerm) return;
             const buf = currentTerm.buffer.active;
@@ -1579,7 +1579,7 @@
             if (newLines.length === 0) return;
 
             const blocks = [];
-            let mode = 'received';  // 'sent' or 'received'
+            let mode = 'received';
             let sentLines = [];
             let receivedLines = [];
 
@@ -1595,13 +1595,11 @@
             }
 
             for (const line of newLines) {
-                // Check if this line has ❯ prompt
+                // Check for ❯ prompt anywhere in line
                 const promptMatch = line.match(/^(.*?)❯\s?(.*)/);
                 if (promptMatch) {
-                    // Flush whatever was pending
                     if (mode === 'sent') flushSent();
                     else flushReceived();
-                    // Start new sent block
                     mode = 'sent';
                     const cmd = promptMatch[2];
                     if (cmd) sentLines.push(cmd);
@@ -1609,19 +1607,23 @@
                 }
 
                 if (mode === 'sent') {
-                    // In sent mode: blank line ends the input
-                    if (line.trim() === '') {
+                    // User input has NO leading spaces
+                    // Response has leading spaces or is a blank line
+                    const isBlank = line.trim() === '';
+                    const hasLeadingSpace = /^\s/.test(line) && !isBlank;
+                    if (isBlank || hasLeadingSpace) {
+                        // Transition to received
                         flushSent();
                         mode = 'received';
+                        receivedLines.push(line);
                     } else {
+                        // Still user input (no leading space)
                         sentLines.push(line);
                     }
                 } else {
-                    // In received mode: collect until next ❯
                     receivedLines.push(line);
                 }
             }
-            // Flush remaining
             if (mode === 'sent') flushSent();
             else flushReceived();
 
