@@ -83,27 +83,46 @@ def get_directory_listing(dir_path: Path, rel_base: Path) -> list:
     return items
 
 
-NAMES_FILE = Path(__file__).parent.parent / ".terminal_names.json"
+CONFIG_DIR = Path(__file__).parent.parent / "config"
+CONFIG_DIR.mkdir(exist_ok=True)
+
+# Legacy location — migrate on first read
+_LEGACY_NAMES_FILE = Path(__file__).parent.parent / ".terminal_names.json"
+NAMES_FILE = CONFIG_DIR / "terminal-names.json"
 
 
-def _read_names():
-    """Read terminal config. Format: {slot: {display_name, command}} or legacy {name: displayName}."""
+def _read_config(filepath):
+    """Read a JSON config file, return dict or empty dict on failure."""
     try:
-        data = json.loads(NAMES_FILE.read_text(encoding="utf-8"))
-        # Migrate legacy format: {name: "displayName"} -> {slot: {display_name, command}}
-        if data and all(isinstance(v, str) for v in data.values()):
-            migrated = {}
-            for i, (k, v) in enumerate(data.items(), 1):
-                migrated[str(i)] = {"display_name": v, "command": ""}
-            _write_names(migrated)
-            return migrated
-        return data
+        return json.loads(filepath.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
 
+def _write_config(filepath, data):
+    """Write a JSON config file."""
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _read_names():
+    """Read terminal config. Migrates from legacy location if needed."""
+    # Migrate legacy file
+    if _LEGACY_NAMES_FILE.is_file() and not NAMES_FILE.is_file():
+        _LEGACY_NAMES_FILE.rename(NAMES_FILE)
+    data = _read_config(NAMES_FILE)
+    # Migrate legacy format: {name: "displayName"} -> {slot: {display_name, command}}
+    if data and all(isinstance(v, str) for v in data.values()):
+        migrated = {}
+        for i, (k, v) in enumerate(data.items(), 1):
+            migrated[str(i)] = {"display_name": v, "command": ""}
+        _write_names(migrated)
+        return migrated
+    return data
+
+
 def _write_names(data):
-    NAMES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_config(NAMES_FILE, data)
 
 
 TERMINAL_UPLOAD_DIR = "uploads"  # Fixed subdir for terminal uploads
@@ -210,6 +229,36 @@ class TerminalNamesHandler(BaseHandler):
         for i, key in enumerate(sorted(names.keys(), key=lambda x: int(x)), 1):
             reindexed[str(i)] = names[key]
         _write_names(reindexed)
+        self.json_response({"ok": True})
+
+
+class ConfigHandler(BaseHandler):
+    """Generic key-value config store. Files saved as config/<key>.json."""
+
+    _VALID_KEY = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+    def _config_path(self, key):
+        if not key or not self._VALID_KEY.match(key):
+            raise web.HTTPError(400, "Invalid config key: %s" % key)
+        return CONFIG_DIR / f"{key}.json"
+
+    @web.authenticated
+    def get(self):
+        key = self.get_argument("key", None)
+        if not key:
+            raise web.HTTPError(400, "key required")
+        self.json_response(_read_config(self._config_path(key)))
+
+    @web.authenticated
+    def put(self):
+        body = json.loads(self.request.body)
+        key = body.get("key")
+        data = body.get("data")
+        if not key:
+            raise web.HTTPError(400, "key required")
+        if data is None:
+            raise web.HTTPError(400, "data required")
+        _write_config(self._config_path(key), data)
         self.json_response({"ok": True})
 
 
@@ -511,6 +560,7 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/workspace-viewer/api/download"), WorkspaceDownloadHandler),
         (ujoin(base_url, r"/workspace-viewer/api/terminal-upload"), TerminalUploadHandler),
         (ujoin(base_url, r"/workspace-viewer/api/terminal-names"), TerminalNamesHandler),
+        (ujoin(base_url, r"/workspace-viewer/api/config"), ConfigHandler),
     ]
     nb_app.web_app.add_handlers(".*$", handlers)
     nb_app.log.info("Workspace Viewer extension loaded at %s/workspace-viewer (workspace: %s)", base_url, workspace)

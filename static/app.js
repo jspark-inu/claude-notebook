@@ -460,10 +460,11 @@
         }
     });
 
-    function renderPreviewMode(data) {
+    async function renderPreviewMode(data) {
         const isCsv = CSV_EXTS.includes(data.extension);
         previewBody.classList.toggle('csv-mode', isCsv);
         if (isCsv) {
+            await loadCsvConfig();
             renderCsvViewer(data.content);
         } else if (MD_EXTS.includes(data.extension) && typeof marked !== 'undefined') {
             previewBody.innerHTML = `<div class="markdown-body">${marked.parse(data.content)}</div>`;
@@ -475,10 +476,11 @@
         }
     }
 
-    function renderEditMode(data) {
+    async function renderEditMode(data) {
         const isCsv = CSV_EXTS.includes(data.extension);
         previewBody.classList.toggle('csv-mode', isCsv);
         if (isCsv) {
+            await loadCsvConfig();
             renderCsvEditor(data.content);
         } else {
             previewBody.innerHTML = `<textarea class="edit-textarea" spellcheck="false">${escHtml(data.content)}</textarea>`;
@@ -571,20 +573,44 @@
         }).join(',')).join('\n');
     }
 
-    // === CSV persistence (column widths + row colors) ===
-    function csvColWidthKey(path) { return 'csv-col-widths:' + path; }
+    // === CSV persistence via server config API ===
+    const CONFIG_API = BASE + '/api/config';
+    let csvConfigCache = null; // { colWidths: {path: [...]}, rowColors: {path: {...}} }
+
+    async function loadCsvConfig() {
+        if (csvConfigCache) return csvConfigCache;
+        try {
+            const res = await fetch(`${CONFIG_API}?key=csv-preferences`, fetchOpts);
+            if (res.ok) csvConfigCache = await res.json();
+        } catch (e) {}
+        if (!csvConfigCache || typeof csvConfigCache !== 'object') csvConfigCache = {};
+        if (!csvConfigCache.colWidths) csvConfigCache.colWidths = {};
+        if (!csvConfigCache.rowColors) csvConfigCache.rowColors = {};
+        return csvConfigCache;
+    }
+    function saveCsvConfig() {
+        if (!csvConfigCache) return;
+        fetch(CONFIG_API, mutFetchOpts({
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'csv-preferences', data: csvConfigCache }),
+        })).catch(() => {});
+    }
     function saveCsvColWidths(path, widths) {
-        try { localStorage.setItem(csvColWidthKey(path), JSON.stringify(widths)); } catch (e) {}
+        if (!csvConfigCache) csvConfigCache = { colWidths: {}, rowColors: {} };
+        csvConfigCache.colWidths[path] = widths;
+        saveCsvConfig();
     }
     function loadCsvColWidths(path) {
-        try { const v = localStorage.getItem(csvColWidthKey(path)); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+        return csvConfigCache && csvConfigCache.colWidths ? csvConfigCache.colWidths[path] || null : null;
     }
-    function csvRowColorKey(path) { return 'csv-row-colors:' + path; }
     function saveCsvRowColors(path, colors) {
-        try { localStorage.setItem(csvRowColorKey(path), JSON.stringify(colors)); } catch (e) {}
+        if (!csvConfigCache) csvConfigCache = { colWidths: {}, rowColors: {} };
+        csvConfigCache.rowColors[path] = colors;
+        saveCsvConfig();
     }
     function loadCsvRowColors(path) {
-        try { const v = localStorage.getItem(csvRowColorKey(path)); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+        return csvConfigCache && csvConfigCache.rowColors ? csvConfigCache.rowColors[path] || null : null;
     }
     const ROW_COLORS = ['none', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
 
