@@ -808,6 +808,9 @@ html, body {
 .term-sidebar.collapsed {
     display: none;
 }
+.term-sidebar.collapsed ~ .term-main .term-toolbar {
+    padding-left: 48px;
+}
 .mobile-overlay {
     display: none;
 }
