@@ -251,12 +251,14 @@ def _auto_create_terminals(nb_app):
                 command = cfg.get("command", "")
                 if command:
                     term = term_mgr.get_terminal(name)
-                    def _send_cmd(t=term, cmd=command):
-                        try:
-                            t.ptyproc.write(cmd + "\r")
-                        except Exception:
-                            pass
-                    IOLoop.current().call_later(1.5, _send_cmd)
+                    lines = [l for l in command.split("\n") if l.strip()]
+                    for idx, line in enumerate(lines):
+                        def _send_line(t=term, cmd=line):
+                            try:
+                                t.ptyproc.write(cmd + "\r")
+                            except Exception:
+                                pass
+                        IOLoop.current().call_later(1.5 + idx * 3, _send_line)
                 nb_app.log.info("Auto-created terminal %s (slot %s: %s)",
                                 name, slot, cfg.get("display_name", ""))
             except Exception as e:
