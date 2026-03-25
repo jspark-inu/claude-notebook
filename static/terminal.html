@@ -469,7 +469,7 @@
         .chat-view {
             display: none;
             position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 48px; left: 0; right: 0; bottom: 0;
             flex-direction: column;
             background: #fff;
             z-index: 10;
@@ -785,6 +785,29 @@
                     <div class="custom-scrollbar-thumb" id="customScrollThumb"></div>
                 </div>
             </div>
+            <!-- iMessage chat view — inside term-main, above input bar -->
+            <div class="chat-view" id="chatView">
+                <div class="chat-header">
+                    <button class="chat-back-btn" id="chatBackBtn"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg></button>
+                    <div class="chat-avatar" id="chatAvatar">T</div>
+                    <div class="chat-contact-info">
+                        <div class="chat-contact-name" id="chatContactName">Terminal</div>
+                        <div class="chat-contact-status" id="chatContactStatus">Connected</div>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-typing-wrap" id="chatTypingWrap">
+                    <div class="chat-typing" id="chatTyping">
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
+                    </div>
+                </div>
+                <div class="chat-input-bar">
+                    <textarea class="chat-input-field" id="chatInputField" placeholder="iMessage" rows="1"></textarea>
+                    <button class="chat-input-send" id="chatInputSend"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+                </div>
+            </div>
             <div class="term-input-bar hidden" id="termInputBar">
                 <textarea class="term-input-field" id="termInputField" placeholder="Type command..." rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
                 <button class="term-input-send" id="termInputSend">Send</button>
@@ -792,31 +815,6 @@
         </div>
     </div>
 
-    <!-- iMessage chat view — fully independent overlay -->
-    <div class="chat-view" id="chatView">
-        <div class="chat-header">
-            <button class="chat-back-btn" id="chatBackBtn"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg></button>
-            <div class="chat-avatar" id="chatAvatar">T</div>
-            <div class="chat-contact-info">
-                <div class="chat-contact-name" id="chatContactName">Terminal</div>
-                <div class="chat-contact-status" id="chatContactStatus">Connected</div>
-            </div>
-        </div>
-        <div class="chat-messages" id="chatMessages">
-            <div id="chatScrollAnchor"></div>
-        </div>
-        <div class="chat-typing-wrap" id="chatTypingWrap">
-            <div class="chat-typing" id="chatTyping">
-                <div class="chat-typing-dot"></div>
-                <div class="chat-typing-dot"></div>
-                <div class="chat-typing-dot"></div>
-            </div>
-        </div>
-        <div class="chat-input-bar">
-            <textarea class="chat-input-field" id="chatInputField" placeholder="iMessage" rows="1"></textarea>
-            <button class="chat-input-send" id="chatInputSend"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
-        </div>
-    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
@@ -1535,10 +1533,29 @@
             }
         });
 
+        // Detect prompt line: look for common prompt endings at or near line start.
+        // Returns the command text (after prompt) or null if not a prompt.
+        // Prompt markers: ❯ ❮ ➜ ➤ ▶ › and also "$ " or "% " at end of a short prefix.
+        function extractCommand(line) {
+            // Match: (anything)(prompt char)(space)(command)
+            // Prompt char must appear within first 40 chars to avoid matching mid-output
+            const prefix = line.substring(0, 40);
+            // Unicode prompt arrows (starship, powerlevel10k, oh-my-zsh, etc.)
+            for (const ch of ['❯', '❮', '➜', '➤', '▶', '›']) {
+                const idx = prefix.indexOf(ch);
+                if (idx !== -1) {
+                    const after = line.substring(idx + ch.length).replace(/^\s+/, '');
+                    return after || null;
+                }
+            }
+            // Traditional prompts: line starts with optional prefix then "$ " or "% "
+            // e.g. "user@host:~$ ls" or "(venv) % pip" — $ or % must be followed by space
+            const m = line.match(/^[^\s$%]{0,30}[\$%]\s+(.*)/);
+            if (m && m[1].trim()) return m[1];
+            return null;
+        }
+
         // Snapshot xterm buffer → parse into sent/received bubbles
-        // Strategy: only lines containing ❯ are user prompts.
-        // The text AFTER ❯ is the user's command (sent).
-        // Everything else is terminal output (received).
         function snapshotBuffer() {
             if (!currentTerm) return;
             const buf = currentTerm.buffer.active;
@@ -1553,7 +1570,7 @@
             chatLastLine = totalLines;
             if (newLines.length === 0) return;
 
-            // Split lines into blocks: prompt lines → sent, others → received
+            // Split into blocks: prompt lines → sent, all others → received
             const blocks = [];
             let receivedLines = [];
 
@@ -1564,14 +1581,10 @@
             }
 
             for (const line of newLines) {
-                // Check for ❯ prompt
-                const idx = line.indexOf('❯');
-                if (idx !== -1) {
-                    // Flush any pending received lines first
+                const cmd = extractCommand(line);
+                if (cmd !== null) {
                     flushReceived();
-                    // Extract command after ❯ (skip the ❯ and any space)
-                    const cmd = line.substring(idx + 1).replace(/^\s+/, '');
-                    if (cmd) blocks.push({ type: 'sent', text: cmd });
+                    blocks.push({ type: 'sent', text: cmd });
                 } else {
                     receivedLines.push(line);
                 }
