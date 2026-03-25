@@ -219,16 +219,23 @@
             border: 1px solid #555;
             color: #ccc;
             font-size: 11px;
-            padding: 3px 10px;
+            padding: 4px 6px;
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.15s;
             flex-shrink: 0;
             white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .term-toolbar-btn:hover {
             background: #555;
             color: #fff;
+        }
+        .term-toolbar-btn svg {
+            width: 16px;
+            height: 16px;
         }
 
         /* Terminal + scrollbar wrapper */
@@ -535,16 +542,16 @@
         .mobile-toggle {
             display: none;
             position: fixed;
-            top: 6px;
+            top: 5px;
             left: 6px;
             z-index: 1001;
-            width: 36px;
-            height: 36px;
-            background: rgba(45,45,45,0.9);
+            width: 32px;
+            height: 28px;
+            background: #3a3a3a;
             border: 1px solid #555;
-            border-radius: 8px;
+            border-radius: 6px;
             color: #ccc;
-            font-size: 18px;
+            font-size: 15px;
             cursor: pointer;
             align-items: center;
             justify-content: center;
@@ -582,7 +589,11 @@
                 padding-left: 52px;
             }
             .term-toolbar {
-                padding-left: 48px;
+                padding-left: 44px;
+            }
+            .term-toolbar-btn svg {
+                width: 14px;
+                height: 14px;
             }
             .term-input-bar {
                 padding-bottom: max(8px, env(safe-area-inset-bottom));
@@ -638,10 +649,10 @@
                 <div class="term-toolbar-dot" id="statusDot"></div>
                 <span class="term-toolbar-title" id="termTitle"></span>
                 <div class="term-toolbar-spacer"></div>
-                <button class="chat-toggle-btn" id="chatToggleBtn" title="Toggle chat view">💬</button>
-                <button class="term-toolbar-btn" id="renameBtn">Rename</button>
-                <button class="term-toolbar-btn" id="reconnectBtn">Reconnect</button>
-                <button class="term-toolbar-btn" id="shutdownBtn" style="border-color:#e03e3e;color:#e03e3e;">Shutdown</button>
+                <button class="chat-toggle-btn" id="chatToggleBtn" title="Toggle chat view"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 1A1.5 1.5 0 0 0 1 2.5v9A1.5 1.5 0 0 0 2.5 13h1.09l2.35 1.96a.5.5 0 0 0 .64 0L8.93 13h4.57A1.5 1.5 0 0 0 15 11.5v-9A1.5 1.5 0 0 0 13.5 1h-11zM4 5.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0 3a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5z"/></svg></button>
+                <button class="term-toolbar-btn" id="renameBtn" title="Config"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.421 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.421-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/></svg></button>
+                <button class="term-toolbar-btn" id="reconnectBtn" title="Reconnect"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A5.501 5.501 0 0 1 13.5 8a.5.5 0 0 1-1 0A4.5 4.5 0 0 0 8 3zM3.5 8a.5.5 0 0 1 1 0 4.5 4.5 0 0 0 7.857 2.818.5.5 0 1 1 .771.636A5.501 5.501 0 0 1 2.5 8z"/></svg></button>
+                <button class="term-toolbar-btn" id="shutdownBtn" title="Shutdown" style="border-color:#e03e3e;color:#e03e3e;"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4L4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg></button>
             </div>
             <div class="term-body">
                 <div id="terminalContainer" style="display:none;"></div>
@@ -1051,7 +1062,9 @@
             chatMessages.innerHTML = '';
             chatLog = [];
             stdoutBuffer = '';
+            stdinBuffer = '';
             if (stdoutTimer) { clearTimeout(stdoutTimer); stdoutTimer = null; }
+            if (stdinTimer) { clearTimeout(stdinTimer); stdinTimer = null; }
 
             termPlaceholder.style.display = 'none';
             termToolbar.style.display = '';
@@ -1205,10 +1218,11 @@
                 statusDot.classList.add('disconnected');
             };
 
-            // Send input character by character
+            // Send input character by character + capture for chat
             currentTerm.onData((data) => {
                 if (currentWs && currentWs.readyState === WebSocket.OPEN) {
                     currentWs.send(JSON.stringify(["stdin", data]));
+                    bufferStdin(data);
                 }
             });
 
@@ -1363,24 +1377,60 @@
             });
         }
 
+        // === Stdin buffering for chat (xterm direct typing) ===
+        let stdinBuffer = '';
+        let stdinTimer = null;
+        function bufferStdin(data) {
+            // Enter/Return → flush current buffer as a chat bubble
+            if (data === '\r' || data === '\n') {
+                if (stdinBuffer.trim()) {
+                    addChatBubble('stdin', stdinBuffer);
+                }
+                stdinBuffer = '';
+                if (stdinTimer) { clearTimeout(stdinTimer); stdinTimer = null; }
+                return;
+            }
+            // Ctrl+C → flush as "^C"
+            if (data === '\x03') {
+                if (stdinBuffer.trim()) addChatBubble('stdin', stdinBuffer);
+                stdinBuffer = '';
+                if (stdinTimer) { clearTimeout(stdinTimer); stdinTimer = null; }
+                addChatBubble('stdin', '^C');
+                return;
+            }
+            // Backspace
+            if (data === '\x7f' || data === '\b') {
+                stdinBuffer = stdinBuffer.slice(0, -1);
+                return;
+            }
+            // Tab → ignore for chat
+            if (data === '\t') return;
+            // Other control chars → ignore
+            if (data.length === 1 && data.charCodeAt(0) < 32) return;
+            stdinBuffer += data;
+        }
+
         // === Terminal output → chat text conversion ===
         // Strips ANSI escape codes and emulates carriage return line overwriting
         function cleanTerminalOutput(raw) {
-            // 1. Strip all ANSI escape sequences
+            // 1. Strip all ANSI / terminal escape sequences
             let text = raw
-                // CSI sequences: ESC [ ... <letter>  (colors, cursor moves, erase, etc.)
-                .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
-                // OSC sequences: ESC ] ... BEL or ESC ] ... ST
+                // CSI sequences: ESC [ (params) (intermediate) final
+                .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
+                // OSC sequences: ESC ] ... BEL or ESC ] ... ST(ESC\)
                 .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+                // DCS sequences: ESC P ... ST
+                .replace(/\x1bP[^\x1b]*\x1b\\/g, '')
                 // ESC ( / ESC ) charset selects
                 .replace(/\x1b[()][0-9A-B]/g, '')
-                // Other 2-byte ESC sequences (ESC =, ESC >, etc.)
-                .replace(/\x1b[^[\]()]/g, '')
+                // Other 2-byte ESC sequences (ESC =, ESC >, ESC M, etc.)
+                .replace(/\x1b[^[\]()P]/g, '')
                 // Stray ESC
                 .replace(/\x1b/g, '')
                 // BEL
                 .replace(/\x07/g, '')
-                // Backspace character
+                // Backspace: remove char before it
+                .replace(/[^\x08]\x08/g, '')
                 .replace(/\x08/g, '');
 
             // 2. Emulate carriage return (\r) — overwrites from start of line
@@ -1424,20 +1474,40 @@
             return result.trim();
         }
 
-        // Batch stdout for chat: collect output for 500ms before creating a bubble
+        // Batch stdout for chat: collect output then split into readable bubbles
         let stdoutBuffer = '';
         let stdoutTimer = null;
+        const MAX_BUBBLE_LINES = 40;  // split long outputs
+
         function bufferStdout(data) {
             stdoutBuffer += data;
             if (stdoutTimer) clearTimeout(stdoutTimer);
             stdoutTimer = setTimeout(() => {
-                if (stdoutBuffer.trim()) {
-                    const clean = cleanTerminalOutput(stdoutBuffer);
-                    if (clean) addChatBubble('stdout', clean);
-                }
+                flushStdoutBuffer();
+            }, 500);
+        }
+
+        function flushStdoutBuffer() {
+            if (!stdoutBuffer.trim()) {
                 stdoutBuffer = '';
                 stdoutTimer = null;
-            }, 500);
+                return;
+            }
+            const clean = cleanTerminalOutput(stdoutBuffer);
+            stdoutBuffer = '';
+            stdoutTimer = null;
+            if (!clean) return;
+
+            // Split very long outputs into multiple bubbles
+            const lines = clean.split('\n');
+            if (lines.length <= MAX_BUBBLE_LINES) {
+                addChatBubble('stdout', clean);
+            } else {
+                for (let i = 0; i < lines.length; i += MAX_BUBBLE_LINES) {
+                    const chunk = lines.slice(i, i + MAX_BUBBLE_LINES).join('\n').trim();
+                    if (chunk) addChatBubble('stdout', chunk);
+                }
+            }
         }
 
         // === Custom scrollbar ===
