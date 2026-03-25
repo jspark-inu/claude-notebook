@@ -464,7 +464,7 @@
             background: #258fb5;
         }
 
-        /* Chat view — terminal-faithful rendering */
+        /* Chat view — iMessage style with terminal-faithful content */
         .chat-view {
             display: none;
             flex: 1;
@@ -477,45 +477,47 @@
         .chat-messages {
             flex: 1;
             overflow-y: auto;
-            padding: 12px;
+            padding: 16px 12px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            background: #1a1a1a;
+            gap: 2px;
+            background: #000;
             -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            scrollbar-color: #333 transparent;
+        }
+        .chat-time-sep {
+            text-align: center;
+            font-size: 11px;
+            color: #666;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 8px 0 4px;
         }
         .chat-bubble {
-            max-width: 90%;
-            padding: 10px 14px;
-            border-radius: 16px;
+            padding: 8px 12px;
+            border-radius: 18px;
             font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace;
             font-size: 13px;
             line-height: 1.45;
-            white-space: pre;
-            overflow-x: auto;
-            word-break: normal;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow: hidden;
         }
         .chat-bubble.stdin {
             align-self: flex-end;
-            background: #0b57a0;
-            color: #e0e0e0;
+            max-width: 85%;
+            background: #248bf5;
+            color: #fff;
             border-bottom-right-radius: 4px;
-            white-space: pre-wrap;
-            word-break: break-word;
+            margin-top: 6px;
         }
         .chat-bubble.stdout {
             align-self: flex-start;
-            background: #2a2a2c;
+            max-width: 100%;
+            background: #1c1c1e;
             color: #d4d4d4;
             border-bottom-left-radius: 4px;
-            max-width: 100%;
-        }
-        .chat-bubble .chat-time {
-            font-size: 9px;
-            color: #666;
-            margin-top: 4px;
-            display: block;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            border: 1px solid #2a2a2c;
         }
         .chat-toggle-btn {
             background: none;
@@ -1061,6 +1063,7 @@
             chatView.classList.remove('active');
             chatMessages.innerHTML = '';
             chatLastLine = 0;
+            lastChatTimeStr = '';
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
 
             termPlaceholder.style.display = 'none';
@@ -1158,13 +1161,21 @@
                     // User scroll: wheel/touch
                     let scrollTimeout = null;
                     viewport.addEventListener('wheel', (e) => {
-                        const current = nativeGet.call(viewport);
-                        // Scrolling up → immediately lock
-                        if (e.deltaY < 0) {
-                            followMode = false;
+                        if (followMode) {
+                            // followMode on: let native scroll handle it (our setter allows it)
+                            // But if user scrolls UP, lock immediately
+                            if (e.deltaY < 0) {
+                                followMode = false;
+                                // Manually apply this up-scroll since native may conflict
+                                const current = nativeGet.call(viewport);
+                                nativeSet.call(viewport, current + e.deltaY * (e.deltaMode === 1 ? 20 : 1));
+                            }
+                            // deltaY > 0 (scroll down) in followMode: native handles it, do nothing extra
+                        } else {
+                            // Locked mode: native scroll is blocked, apply delta manually
+                            const current = nativeGet.call(viewport);
+                            nativeSet.call(viewport, current + e.deltaY * (e.deltaMode === 1 ? 20 : 1));
                         }
-                        // Apply wheel delta manually (works in both modes)
-                        nativeSet.call(viewport, current - e.deltaY * (e.deltaMode === 1 ? 20 : 1));
                         // After scrolling stops, check if back at bottom
                         clearTimeout(scrollTimeout);
                         scrollTimeout = setTimeout(() => {
@@ -1348,6 +1359,7 @@
                 // Take initial snapshot of everything in the buffer
                 chatMessages.innerHTML = '';
                 chatLastLine = 0;
+                lastChatTimeStr = '';
                 snapshotBuffer();
                 scrollChatToBottom();
                 // Poll for new content every 500ms
@@ -1390,15 +1402,21 @@
             scrollChatToBottom();
         }
 
+        let lastChatTimeStr = '';
         function addChatBubble(type, text) {
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+            // Show time separator if minute changed
+            if (timeStr !== lastChatTimeStr) {
+                const sep = document.createElement('div');
+                sep.className = 'chat-time-sep';
+                sep.textContent = timeStr;
+                chatMessages.appendChild(sep);
+                lastChatTimeStr = timeStr;
+            }
             const bubble = document.createElement('div');
             bubble.className = 'chat-bubble ' + type;
             bubble.textContent = text;
-            const timeEl = document.createElement('span');
-            timeEl.className = 'chat-time';
-            const now = new Date();
-            timeEl.textContent = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-            bubble.appendChild(timeEl);
             chatMessages.appendChild(bubble);
         }
 
