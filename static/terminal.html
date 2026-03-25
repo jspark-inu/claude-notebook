@@ -1535,9 +1535,23 @@
             }
         });
 
-        // Detect if a line is a user prompt (user input)
-        // Matches: ❯, $, %, >, >>>, (venv)$, user@host:~$, etc.
-        const PROMPT_RE = /^(?:.*?[❯\$%>#])\s+\S/;
+        // Parse a line to detect shell prompt → returns {sent:bool, command:string}
+        // Only matches very specific prompt patterns to avoid false positives
+        const PROMPT_PATTERNS = [
+            /^(.*❯)\s+(.*)/,                       // starship: ❯ command
+            /^(\S+\$)\s+(.*)/,                      // user@host:~$ command
+            /^(\([^)]+\)\s*\S*\$)\s+(.*)/,          // (venv) user$ command
+            /^(\S+%)\s+(.*)/,                        // zsh: user% command
+            /^(\([^)]+\)\s*\S*%)\s+(.*)/,            // (venv) user% command
+        ];
+
+        function parsePromptLine(line) {
+            for (const re of PROMPT_PATTERNS) {
+                const m = line.match(re);
+                if (m) return { sent: true, text: m[2] };
+            }
+            return { sent: false, text: line };
+        }
 
         // Snapshot xterm buffer → parse into sent/received bubbles
         function snapshotBuffer() {
@@ -1560,22 +1574,22 @@
             for (const line of newLines) {
                 const trimmed = line.trim();
                 if (!trimmed) {
-                    // Empty line continues current block
-                    if (currentBlock) currentBlock.lines.push(line);
+                    if (currentBlock) currentBlock.lines.push('');
                     continue;
                 }
-                const isSent = PROMPT_RE.test(line);
-                if (!currentBlock || currentBlock.type !== (isSent ? 'sent' : 'received')) {
-                    currentBlock = { type: isSent ? 'sent' : 'received', lines: [line] };
+                const parsed = parsePromptLine(line);
+                const type = parsed.sent ? 'sent' : 'received';
+                const displayLine = parsed.text;
+                if (!currentBlock || currentBlock.type !== type) {
+                    currentBlock = { type, lines: [displayLine] };
                     blocks.push(currentBlock);
                 } else {
-                    currentBlock.lines.push(line);
+                    currentBlock.lines.push(displayLine);
                 }
             }
 
             if (blocks.length === 0) return;
 
-            // Check if any received content → show typing then reveal
             const hasReceived = blocks.some(b => b.type === 'received');
             if (hasReceived) showTyping();
 
