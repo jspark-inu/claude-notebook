@@ -179,12 +179,16 @@
             const parts = path.split('/');
             const breadcrumb = parts.map((p, i) => `<span>${escHtml(p)}</span>`).join(' / ');
 
-            // Image files: display directly as <img>
+            // Image files: fetch as blob to include auth headers
             if (IMAGE_EXTS.includes(ext)) {
                 const imgUrl = `${base}/api/file?path=${encodeURIComponent(path)}`;
+                const imgRes = await fetch(imgUrl, fetchOpts);
+                if (!imgRes.ok) throw new Error('Failed to load image');
+                const blob = await imgRes.blob();
+                const objectUrl = URL.createObjectURL(blob);
                 contentEl.innerHTML = `
                     <div class="breadcrumb">${breadcrumb}</div>
-                    <div class="image-viewer"><img src="${imgUrl}" alt="${escHtml(parts[parts.length - 1])}"></div>
+                    <div class="image-viewer"><img src="${objectUrl}" alt="${escHtml(parts[parts.length - 1])}"></div>
                 `;
                 return;
             }
