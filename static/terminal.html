@@ -548,24 +548,33 @@
         .chat-msg-row.sent { justify-content: flex-end; }
         .chat-msg-row.received { justify-content: flex-start; }
         .chat-bubble {
-            max-width: 80%;
             padding: 8px 12px;
             border-radius: 18px;
-            font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace;
             font-size: 13px;
             line-height: 1.45;
-            white-space: pre-wrap;
-            word-break: break-word;
         }
         .chat-msg-row.sent .chat-bubble {
+            max-width: 80%;
             background: #007aff;
             color: #fff;
             border-bottom-right-radius: 4px;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
         .chat-msg-row.received .chat-bubble {
+            max-width: 100%;
             background: #e9e9eb;
             color: #000;
             border-bottom-left-radius: 4px;
+            font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace;
+            white-space: pre;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .chat-msg-row.received .chat-bubble::-webkit-scrollbar {
+            display: none;
         }
         /* Typing indicator */
         .chat-typing-wrap {
@@ -1569,46 +1578,55 @@
             const line = buf.getLine(lineIdx);
             if (!line) return { text: '', html: '' };
             const text = line.translateToString(true);
-            // Build HTML with color info
-            let html = '';
-            let lastFg = null, lastBold = false, lastItalic = false, spanOpen = false;
-            const cell = buf.getNullCell ? buf.getNullCell() : null;
-            const cols = line.length;
-            for (let x = 0; x < cols; x++) {
-                const c = cell ? line.getCell(x, cell) : line.getCell(x);
-                if (!c) break;
-                const ch = c.getChars();
-                if (!ch) continue;
-                const fgMode = c.getFgColorMode();
-                const bold = c.isBold();
-                const italic = c.isItalic();
-                let fg = null;
-                if (fgMode === 1) fg = ANSI_COLORS[c.getFgColor() & 0xf]; // 16 color
-                else if (fgMode === 2) fg = null; // 256 — skip for simplicity
-                else if (fgMode === 3) fg = '#' + c.getFgColor().toString(16).padStart(6, '0'); // RGB
+            try {
+                let html = '';
+                let lastFg = null, lastBold = false, lastItalic = false, spanOpen = false;
+                const cols = line.length;
+                for (let x = 0; x < cols; x++) {
+                    let c;
+                    try { c = line.getCell(x); } catch(e) { break; }
+                    if (!c) break;
+                    const ch = c.getChars();
+                    if (!ch) continue;
+                    let fg = null, bold = false, italic = false;
+                    try {
+                        const fgMode = c.getFgColorMode();
+                        bold = !!c.isBold();
+                        italic = !!c.isItalic();
+                        if (fgMode === 1) fg = ANSI_COLORS[c.getFgColor() & 0xf];
+                        else if (fgMode === 3) {
+                            const rgb = c.getFgColor();
+                            fg = '#' + ((rgb >> 16) & 0xff).toString(16).padStart(2,'0')
+                                     + ((rgb >> 8) & 0xff).toString(16).padStart(2,'0')
+                                     + (rgb & 0xff).toString(16).padStart(2,'0');
+                        }
+                    } catch(e) { /* API not available, skip styling */ }
 
-                const changed = fg !== lastFg || bold !== lastBold || italic !== lastItalic;
-                if (changed) {
-                    if (spanOpen) html += '</span>';
-                    spanOpen = false;
-                    if (fg || bold || italic) {
-                        let style = '';
-                        if (fg) style += 'color:' + fg + ';';
-                        if (bold) style += 'font-weight:700;';
-                        if (italic) style += 'font-style:italic;';
-                        html += '<span style="' + style + '">';
-                        spanOpen = true;
+                    const changed = fg !== lastFg || bold !== lastBold || italic !== lastItalic;
+                    if (changed) {
+                        if (spanOpen) html += '</span>';
+                        spanOpen = false;
+                        if (fg || bold || italic) {
+                            let style = '';
+                            if (fg) style += 'color:' + fg + ';';
+                            if (bold) style += 'font-weight:700;';
+                            if (italic) style += 'font-style:italic;';
+                            html += '<span style="' + style + '">';
+                            spanOpen = true;
+                        }
+                        lastFg = fg; lastBold = bold; lastItalic = italic;
                     }
-                    lastFg = fg; lastBold = bold; lastItalic = italic;
+                    if (ch === '<') html += '&lt;';
+                    else if (ch === '>') html += '&gt;';
+                    else if (ch === '&') html += '&amp;';
+                    else html += ch;
                 }
-                // Escape HTML entities
-                if (ch === '<') html += '&lt;';
-                else if (ch === '>') html += '&gt;';
-                else if (ch === '&') html += '&amp;';
-                else html += ch;
+                if (spanOpen) html += '</span>';
+                return { text, html: html || escText(text) };
+            } catch(e) {
+                // Fallback: plain text if cell API fails
+                return { text, html: escText(text) };
             }
-            if (spanOpen) html += '</span>';
-            return { text, html: html || escText(text) };
         }
 
         function escText(s) {

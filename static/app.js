@@ -179,11 +179,11 @@
             const parts = path.split('/');
             const breadcrumb = parts.map((p, i) => `<span>${escHtml(p)}</span>`).join(' / ');
 
-            // Image files: fetch as blob to include auth headers
+            // Image files: fetch from raw endpoint as blob
             if (IMAGE_EXTS.includes(ext)) {
-                const imgUrl = `${base}/api/file?path=${encodeURIComponent(path)}`;
+                const imgUrl = `${base}/api/raw?path=${encodeURIComponent(path)}`;
                 const imgRes = await fetch(imgUrl, fetchOpts);
-                if (!imgRes.ok) throw new Error('Failed to load image');
+                if (!imgRes.ok) throw new Error('Image not found (HTTP ' + imgRes.status + ')');
                 const blob = await imgRes.blob();
                 const objectUrl = URL.createObjectURL(blob);
                 contentEl.innerHTML = `
