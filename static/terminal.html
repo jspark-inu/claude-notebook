@@ -465,14 +465,17 @@
             background: #258fb5;
         }
 
-        /* Chat view — full iMessage redesign */
+        /* Chat view — full iMessage, uses fixed positioning for guaranteed scroll */
         .chat-view {
             display: none;
-            flex: 1;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             flex-direction: column;
-            min-height: 0;
-            overflow: hidden;
             background: var(--bg);
+            z-index: 10;
         }
         .chat-view.active {
             display: flex;
@@ -485,7 +488,7 @@
             padding: 10px 16px;
             background: var(--sidebar-bg);
             border-bottom: 1px solid var(--border);
-            min-height: 48px;
+            height: 48px;
             flex-shrink: 0;
         }
         .chat-avatar {
@@ -520,25 +523,15 @@
         .chat-contact-status.typing {
             color: var(--accent);
         }
-        .chat-messages-wrap {
-            flex: 1;
-            min-height: 0;
-            position: relative;
-            overflow: hidden;
-        }
         .chat-messages {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            overflow-y: auto;
+            flex: 1;
+            overflow-y: scroll;
+            -webkit-overflow-scrolling: touch;
             padding: 12px 16px;
             display: flex;
             flex-direction: column;
             gap: 2px;
             background: var(--bg);
-            -webkit-overflow-scrolling: touch;
             scrollbar-width: thin;
             scrollbar-color: var(--border) transparent;
         }
@@ -758,13 +751,11 @@
                         <div class="chat-contact-status" id="chatContactStatus">Connected</div>
                     </div>
                 </div>
-                <div class="chat-messages-wrap">
-                    <div class="chat-messages" id="chatMessages">
-                        <div class="chat-typing" id="chatTyping">
-                            <div class="chat-typing-dot"></div>
-                            <div class="chat-typing-dot"></div>
-                            <div class="chat-typing-dot"></div>
-                        </div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="chat-typing" id="chatTyping">
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
                     </div>
                 </div>
             </div>
@@ -1166,6 +1157,7 @@
             chatMode = false;
             chatToggleBtn.classList.remove('active');
             chatView.classList.remove('active');
+            chatView.style.bottom = '';
             const typing = chatTyping;
             chatMessages.innerHTML = '';
             chatMessages.appendChild(typing);
@@ -1178,7 +1170,6 @@
             termPlaceholder.style.display = 'none';
             termToolbar.style.display = '';
             terminalContainer.style.display = '';
-            document.querySelector('.term-body').style.display = '';
             termInputBar.classList.remove('hidden');
             scrollbar.classList.add('active');
             termTitle.textContent = currentDisplayName;
@@ -1460,20 +1451,26 @@
         let chatTypingTimeout = null;
         let chatPrevTotalLines = 0;
 
+        function layoutChatView() {
+            if (!chatMode) return;
+            // Position chat-view above the input bar
+            const inputBar = termInputBar;
+            const inputH = inputBar.offsetHeight || 44;
+            chatView.style.bottom = inputH + 'px';
+        }
+
         chatToggleBtn.addEventListener('click', () => {
             chatMode = !chatMode;
             chatToggleBtn.classList.toggle('active', chatMode);
-            const termBody = document.querySelector('.term-body');
             if (chatMode) {
-                termBody.style.display = 'none';
                 chatView.classList.add('active');
+                layoutChatView();
                 // Set contact info
                 chatContactName.textContent = currentDisplayName || 'Terminal';
                 chatAvatar.textContent = (currentDisplayName || 'T').charAt(0).toUpperCase();
                 chatContactStatus.textContent = (currentWs && currentWs.readyState === WebSocket.OPEN) ? 'Connected' : 'Disconnected';
                 chatContactStatus.classList.remove('typing');
                 // Reset and snapshot
-                // Keep typing indicator at the end — clear only bubbles before it
                 const typing = chatTyping;
                 chatMessages.innerHTML = '';
                 chatMessages.appendChild(typing);
@@ -1484,13 +1481,16 @@
                 scrollChatToBottom();
                 chatSnapshotTimer = setInterval(snapshotBuffer, 500);
             } else {
-                termBody.style.display = '';
                 chatView.classList.remove('active');
+                chatView.style.bottom = '';
                 if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
                 chatTyping.classList.remove('active');
                 if (fitAddon) setTimeout(() => fitAddon.fit(), 50);
             }
         });
+
+        // Re-layout on resize
+        window.addEventListener('resize', layoutChatView);
 
         function snapshotBuffer() {
             if (!currentTerm) return;
