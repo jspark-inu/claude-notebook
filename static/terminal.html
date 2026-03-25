@@ -562,8 +562,8 @@
             border-bottom-right-radius: 4px;
         }
         .chat-msg-row.received .chat-bubble {
-            background: #1e1e1e;
-            color: #d4d4d4;
+            background: #e9e9eb;
+            color: #000;
             border-bottom-left-radius: 4px;
         }
         /* Typing indicator */
@@ -1557,10 +1557,10 @@
             }
         });
 
-        // ANSI 16-color palette matching xterm theme
+        // ANSI 16-color palette — adjusted for light bubble background
         const ANSI_COLORS = [
-            '#1e1e1e','#f44747','#6a9955','#d7ba7d','#569cd6','#c586c0','#4ec9b0','#d4d4d4',
-            '#808080','#f44747','#6a9955','#d7ba7d','#569cd6','#c586c0','#4ec9b0','#ffffff',
+            '#24292e','#cf222e','#116329','#9a6700','#0550ae','#8250df','#0e7490','#57606a',
+            '#6e7781','#cf222e','#116329','#9a6700','#0550ae','#8250df','#0e7490','#24292e',
         ];
 
         // Convert a buffer line to HTML with color spans
