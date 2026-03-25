@@ -571,7 +571,7 @@
         }).join(',')).join('\n');
     }
 
-    // === CSV column width persistence ===
+    // === CSV persistence (column widths + row colors) ===
     function csvColWidthKey(path) { return 'csv-col-widths:' + path; }
     function saveCsvColWidths(path, widths) {
         try { localStorage.setItem(csvColWidthKey(path), JSON.stringify(widths)); } catch (e) {}
@@ -579,6 +579,14 @@
     function loadCsvColWidths(path) {
         try { const v = localStorage.getItem(csvColWidthKey(path)); return v ? JSON.parse(v) : null; } catch (e) { return null; }
     }
+    function csvRowColorKey(path) { return 'csv-row-colors:' + path; }
+    function saveCsvRowColors(path, colors) {
+        try { localStorage.setItem(csvRowColorKey(path), JSON.stringify(colors)); } catch (e) {}
+    }
+    function loadCsvRowColors(path) {
+        try { const v = localStorage.getItem(csvRowColorKey(path)); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+    }
+    const ROW_COLORS = ['none', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
 
     // === CSV Viewer (read-only with sort, filter, color) ===
     function renderCsvViewer(content) {
@@ -597,8 +605,11 @@
             colWidths = headers.map(() => 150);
         }
 
+        // Row colors (keyed by original row index)
+        let rowColors = loadCsvRowColors(filePath) || {};
+
         function render() {
-            let filtered = dataRows.filter(row =>
+            let filtered = dataRows.map((row, i) => ({ row, origIdx: i })).filter(({ row }) =>
                 headers.every((_, ci) => {
                     if (!filters[ci]) return true;
                     return (row[ci] || '').toLowerCase().includes(filters[ci].toLowerCase());
@@ -606,7 +617,7 @@
             );
             if (sortCol >= 0) {
                 filtered.sort((a, b) => {
-                    const va = a[sortCol] || '', vb = b[sortCol] || '';
+                    const va = a.row[sortCol] || '', vb = b.row[sortCol] || '';
                     const na = parseFloat(va), nb = parseFloat(vb);
                     let cmp = (!isNaN(na) && !isNaN(nb)) ? na - nb : va.localeCompare(vb);
                     return sortAsc ? cmp : -cmp;
@@ -625,18 +636,21 @@
                 html += `<th><input class="csv-filter" data-col="${ci}" placeholder="Filter..." value="${escHtml(filters[ci])}"></th>`;
             });
             html += '</tr></thead><tbody>';
-            filtered.forEach((row, ri) => {
-                html += `<tr class="${ri % 2 ? 'even' : 'odd'}">`;
+            filtered.forEach(({ row, origIdx }) => {
+                const color = rowColors[origIdx] || '';
+                const colorAttr = color && color !== 'none' ? ` data-color="${color}"` : '';
+                html += `<tr${colorAttr} data-orig="${origIdx}">`;
                 headers.forEach((_, ci) => {
                     const val = row[ci] || '';
                     const num = parseFloat(val);
                     const cls = !isNaN(num) && val.trim() !== '' ? ' num' : '';
-                    html += `<td class="${cls}"><span class="csv-cell-text">${escHtml(val)}</span><button class="csv-cell-copy" title="Copy">&#x2398;</button></td>`;
+                    const colorBtn = ci === 0 ? '<button class="csv-row-color" title="Color">&#9679;</button>' : '';
+                    html += `<td class="${cls}">${colorBtn}<span class="csv-cell-text">${escHtml(val)}</span><button class="csv-cell-copy" title="Copy">&#x2398;</button></td>`;
                 });
                 html += '</tr>';
             });
-            html += '</tbody></table>';
-            html += `<div class="csv-status">${filtered.length} of ${dataRows.length} rows</div></div>`;
+            html += '</tbody></table></div>';
+            html += `<div class="csv-status">${filtered.length} of ${dataRows.length} rows</div>`;
 
             previewBody.innerHTML = html;
 
@@ -693,6 +707,37 @@
                         btn.innerHTML = '&#10003;';
                         setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = '&#x2398;'; }, 1000);
                     });
+                });
+            });
+            // Bind row color buttons
+            previewBody.querySelectorAll('.csv-row-color').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Remove any existing menu
+                    document.querySelectorAll('.csv-row-color-menu').forEach(m => m.remove());
+                    const tr = btn.closest('tr');
+                    const origIdx = parseInt(tr.dataset.orig);
+                    const rect = btn.getBoundingClientRect();
+                    const menu = document.createElement('div');
+                    menu.className = 'csv-row-color-menu';
+                    ROW_COLORS.forEach(c => {
+                        const dot = document.createElement('div');
+                        dot.className = 'csv-color-dot' + ((rowColors[origIdx] || 'none') === c ? ' active' : '');
+                        dot.dataset.color = c;
+                        dot.addEventListener('click', () => {
+                            if (c === 'none') delete rowColors[origIdx];
+                            else rowColors[origIdx] = c;
+                            saveCsvRowColors(filePath, rowColors);
+                            menu.remove();
+                            render();
+                        });
+                        menu.appendChild(dot);
+                    });
+                    menu.style.left = rect.right + 4 + 'px';
+                    menu.style.top = rect.top - 4 + 'px';
+                    document.body.appendChild(menu);
+                    const closeMenu = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', closeMenu); } };
+                    setTimeout(() => document.addEventListener('mousedown', closeMenu), 0);
                 });
             });
         }
