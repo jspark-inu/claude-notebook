@@ -624,7 +624,8 @@
                 });
             }
 
-            let html = '<div class="csv-viewer"><table class="csv-table"><colgroup>';
+            const totalW = colWidths.reduce((s, w) => s + w, 0);
+            let html = `<div class="csv-viewer"><table class="csv-table" style="width:${totalW}px"><colgroup>`;
             headers.forEach((_, ci) => { html += `<col style="width:${colWidths[ci]}px">`; });
             html += '</colgroup><thead><tr>';
             headers.forEach((h, ci) => {
@@ -681,10 +682,12 @@
                     const startX = e.clientX;
                     const startW = colWidths[ci];
                     handle.classList.add('active');
+                    const table = previewBody.querySelector('.csv-table');
                     const onMove = (me) => {
                         colWidths[ci] = Math.max(40, startW + me.clientX - startX);
                         const col = previewBody.querySelector(`col:nth-child(${ci + 1})`);
                         if (col) col.style.width = colWidths[ci] + 'px';
+                        if (table) table.style.width = colWidths.reduce((s, w) => s + w, 0) + 'px';
                     };
                     const onUp = () => {
                         handle.classList.remove('active');
@@ -774,7 +777,8 @@
         html += '<button class="csv-edit-btn" id="csvAddRow">+ Row</button>';
         html += '<button class="csv-edit-btn" id="csvAddCol">+ Column</button>';
         html += '</div>';
-        html += '<div class="csv-edit-scroll"><table class="csv-table csv-edit-table"><colgroup>';
+        const totalW = 24 + colWidths.reduce((s, w) => s + w, 0);
+        html += `<div class="csv-edit-scroll"><table class="csv-table csv-edit-table" style="width:${totalW}px"><colgroup>`;
         html += '<col style="width:24px">';
         for (let ci = 0; ci < maxCols; ci++) { html += `<col style="width:${colWidths[ci]}px">`; }
         html += '</colgroup><tbody>';
@@ -860,10 +864,12 @@
                 const startX = e.clientX;
                 const startW = colWidths[ci];
                 handle.classList.add('active');
+                const table = previewBody.querySelector('.csv-edit-table');
                 const onMove = (me) => {
                     colWidths[ci] = Math.max(40, startW + me.clientX - startX);
                     const col = previewBody.querySelector(`.csv-edit-table col:nth-child(${ci + 2})`);
                     if (col) col.style.width = colWidths[ci] + 'px';
+                    if (table) table.style.width = (24 + colWidths.reduce((s, w) => s + w, 0)) + 'px';
                 };
                 const onUp = () => {
                     handle.classList.remove('active');

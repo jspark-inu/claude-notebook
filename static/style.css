@@ -675,7 +675,6 @@ html, body {
     border-collapse: separate;
     border-spacing: 0;
     font-size: 13px;
-    table-layout: fixed;
 }
 .csv-table th, .csv-table td {
     border-bottom: 1px solid var(--border);
@@ -685,7 +684,6 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 0;
     position: relative;
 }
 .csv-table th:last-child, .csv-table td:last-child {
@@ -697,7 +695,7 @@ html, body {
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    color: var(--text-secondary);
+    color: var(--text);
     position: sticky;
     top: 0;
     z-index: 2;
@@ -706,7 +704,6 @@ html, body {
 }
 .csv-table thead th:hover {
     background: #eef1f4;
-    color: var(--text);
 }
 /* Column resize handle */
 .csv-resize-handle {
