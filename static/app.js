@@ -548,6 +548,15 @@
         }).join(',')).join('\n');
     }
 
+    // === CSV column width persistence ===
+    function csvColWidthKey(path) { return 'csv-col-widths:' + path; }
+    function saveCsvColWidths(path, widths) {
+        try { localStorage.setItem(csvColWidthKey(path), JSON.stringify(widths)); } catch (e) {}
+    }
+    function loadCsvColWidths(path) {
+        try { const v = localStorage.getItem(csvColWidthKey(path)); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+    }
+
     // === CSV Viewer (read-only with sort, filter, color) ===
     function renderCsvViewer(content) {
         const rows = parseCsv(content);
@@ -557,6 +566,13 @@
         let dataRows = rows.slice(1);
         let sortCol = -1, sortAsc = true;
         let filters = headers.map(() => '');
+        const filePath = currentFileData ? currentFileData.path : '';
+
+        // Load or compute initial column widths
+        let colWidths = loadCsvColWidths(filePath);
+        if (!colWidths || colWidths.length !== headers.length) {
+            colWidths = headers.map(() => 150);
+        }
 
         function render() {
             let filtered = dataRows.filter(row =>
@@ -574,10 +590,12 @@
                 });
             }
 
-            let html = '<div class="csv-viewer"><table class="csv-table"><thead><tr>';
+            let html = '<div class="csv-viewer"><table class="csv-table"><colgroup>';
+            headers.forEach((_, ci) => { html += `<col style="width:${colWidths[ci]}px">`; });
+            html += '</colgroup><thead><tr>';
             headers.forEach((h, ci) => {
                 const arrow = sortCol === ci ? (sortAsc ? ' &#9650;' : ' &#9660;') : '';
-                html += `<th data-col="${ci}">${escHtml(h)}${arrow}</th>`;
+                html += `<th data-col="${ci}">${escHtml(h)}${arrow}<span class="csv-resize-handle" data-col="${ci}"></span></th>`;
             });
             html += '</tr><tr class="csv-filter-row">';
             headers.forEach((_, ci) => {
@@ -589,8 +607,8 @@
                 headers.forEach((_, ci) => {
                     const val = row[ci] || '';
                     const num = parseFloat(val);
-                    const cls = !isNaN(num) && val.trim() !== '' ? ' class="num"' : '';
-                    html += `<td${cls}>${escHtml(val)}</td>`;
+                    const cls = !isNaN(num) && val.trim() !== '' ? ' num' : '';
+                    html += `<td class="${cls}"><span class="csv-cell-text">${escHtml(val)}</span><button class="csv-cell-copy" title="Copy">&#x2398;</button></td>`;
                 });
                 html += '</tr>';
             });
@@ -599,10 +617,11 @@
 
             previewBody.innerHTML = html;
 
-            // Bind sort
+            // Bind sort (only on th text area, not resize handle)
             previewBody.querySelectorAll('.csv-table thead th[data-col]').forEach(th => {
                 th.style.cursor = 'pointer';
-                th.addEventListener('click', () => {
+                th.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('csv-resize-handle')) return;
                     const ci = parseInt(th.dataset.col);
                     if (sortCol === ci) sortAsc = !sortAsc;
                     else { sortCol = ci; sortAsc = true; }
@@ -614,6 +633,43 @@
                 input.addEventListener('input', () => {
                     filters[parseInt(input.dataset.col)] = input.value;
                     render();
+                });
+            });
+            // Bind column resize
+            previewBody.querySelectorAll('.csv-resize-handle').forEach(handle => {
+                handle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const ci = parseInt(handle.dataset.col);
+                    const startX = e.clientX;
+                    const startW = colWidths[ci];
+                    handle.classList.add('active');
+                    const onMove = (me) => {
+                        colWidths[ci] = Math.max(40, startW + me.clientX - startX);
+                        const col = previewBody.querySelector(`col:nth-child(${ci + 1})`);
+                        if (col) col.style.width = colWidths[ci] + 'px';
+                    };
+                    const onUp = () => {
+                        handle.classList.remove('active');
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                        saveCsvColWidths(filePath, colWidths);
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                });
+            });
+            // Bind cell copy buttons
+            previewBody.querySelectorAll('.csv-cell-copy').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const td = btn.parentElement;
+                    const text = td.querySelector('.csv-cell-text').textContent;
+                    navigator.clipboard.writeText(text).then(() => {
+                        btn.classList.add('copied');
+                        btn.innerHTML = '&#10003;';
+                        setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = '&#x2398;'; }, 1000);
+                    });
                 });
             });
         }
@@ -635,17 +691,27 @@
         // Normalize column count
         rows.forEach(r => { while (r.length < maxCols) r.push(''); });
 
+        const filePath = currentFileData ? currentFileData.path : '';
+        let colWidths = loadCsvColWidths(filePath);
+        if (!colWidths || colWidths.length !== maxCols) {
+            colWidths = new Array(maxCols).fill(150);
+        }
+
         let html = '<div class="csv-editor"><div class="csv-edit-toolbar">';
         html += '<button class="csv-edit-btn" id="csvAddRow">+ Row</button>';
         html += '<button class="csv-edit-btn" id="csvAddCol">+ Column</button>';
         html += '</div>';
-        html += '<div class="csv-edit-scroll"><table class="csv-table csv-edit-table"><tbody>';
+        html += '<div class="csv-edit-scroll"><table class="csv-table csv-edit-table"><colgroup>';
+        html += '<col style="width:24px">';
+        for (let ci = 0; ci < maxCols; ci++) { html += `<col style="width:${colWidths[ci]}px">`; }
+        html += '</colgroup><tbody>';
         rows.forEach((row, ri) => {
             html += '<tr>';
             html += `<td class="csv-row-actions"><button class="csv-del-btn" data-row="${ri}" title="Delete row">&times;</button></td>`;
             row.forEach((cell, ci) => {
                 const isHeader = ri === 0 ? ' csv-header-cell' : '';
-                html += `<td class="csv-cell${isHeader}" contenteditable="true" data-row="${ri}" data-col="${ci}">${escHtml(cell)}</td>`;
+                const resizer = ri === 0 ? `<span class="csv-resize-handle" data-col="${ci}"></span>` : '';
+                html += `<td class="csv-cell${isHeader}" contenteditable="true" data-row="${ri}" data-col="${ci}">${escHtml(cell)}${resizer}</td>`;
             });
             html += '</tr>';
         });
@@ -706,6 +772,30 @@
                 const ci = parseInt(btn.dataset.col);
                 csvEditRows.forEach(r => r.splice(ci, 1));
                 renderCsvEditTable();
+            });
+        });
+        // Column resize in editor
+        previewBody.querySelectorAll('.csv-edit-table .csv-resize-handle').forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const ci = parseInt(handle.dataset.col);
+                const startX = e.clientX;
+                const startW = colWidths[ci];
+                handle.classList.add('active');
+                const onMove = (me) => {
+                    colWidths[ci] = Math.max(40, startW + me.clientX - startX);
+                    const col = previewBody.querySelector(`.csv-edit-table col:nth-child(${ci + 2})`);
+                    if (col) col.style.width = colWidths[ci] + 'px';
+                };
+                const onUp = () => {
+                    handle.classList.remove('active');
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    saveCsvColWidths(filePath, colWidths);
+                };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
             });
         });
     }

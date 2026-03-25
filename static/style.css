@@ -647,34 +647,57 @@ html, body {
 
 /* === CSV Viewer === */
 .csv-viewer {
-    overflow-x: auto;
+    max-height: calc(100vh - 160px);
+    overflow: auto;
 }
 .csv-table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
     font-size: 13px;
-    table-layout: auto;
+    table-layout: fixed;
 }
 .csv-table th, .csv-table td {
     border: 1px solid var(--border);
     padding: 6px 10px;
     text-align: left;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    position: relative;
 }
 .csv-table thead th {
     background: var(--sidebar-bg);
     font-weight: 600;
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 2;
     user-select: none;
 }
 .csv-table thead th:hover {
     background: var(--sidebar-hover);
 }
+/* Column resize handle */
+.csv-resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    z-index: 3;
+}
+.csv-resize-handle:hover,
+.csv-resize-handle.active {
+    background: var(--accent);
+    opacity: 0.4;
+}
 .csv-filter-row th {
     padding: 2px 4px;
     background: #fff !important;
+    position: sticky;
+    top: 31px;
+    z-index: 1;
 }
 .csv-filter {
     width: 100%;
@@ -692,10 +715,48 @@ html, body {
 .csv-table tbody tr.even { background: #fafaf9; }
 .csv-table tbody tr:hover td { background: #f0f7fc; }
 .csv-table td.num { text-align: right; color: #2563eb; }
+/* Cell copy button */
+.csv-cell-copy {
+    display: none;
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 3px;
+    background: var(--sidebar-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 1px var(--border);
+    transition: all 0.1s;
+}
+.csv-table tbody td:hover .csv-cell-copy {
+    display: inline-flex;
+}
+.csv-cell-copy:hover {
+    background: var(--text);
+    color: #fff;
+    box-shadow: none;
+}
+.csv-cell-copy.copied {
+    background: #16a34a;
+    color: #fff;
+    box-shadow: none;
+}
 .csv-status {
     padding: 8px 4px;
     font-size: 12px;
     color: var(--text-secondary);
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    background: var(--bg);
 }
 
 /* === CSV Editor === */
@@ -723,7 +784,8 @@ html, body {
     border-color: var(--text);
 }
 .csv-edit-scroll {
-    overflow-x: auto;
+    max-height: calc(100vh - 220px);
+    overflow: auto;
 }
 .csv-edit-table .csv-cell {
     min-width: 60px;
