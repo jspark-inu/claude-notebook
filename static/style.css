@@ -675,6 +675,7 @@ html, body {
     border-collapse: separate;
     border-spacing: 0;
     font-size: 13px;
+    table-layout: fixed;
 }
 .csv-table th, .csv-table td {
     border-bottom: 1px solid var(--border);
