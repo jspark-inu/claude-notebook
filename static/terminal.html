@@ -1656,19 +1656,23 @@
                 if (Date.now() - idleSince < IDLE_THRESHOLD) return;
 
                 // Content stable for 3s — output is done!
-                // Capture from sentTextFoundLine+1 to end (everything after user's text)
-                let outputFrom = sentTextFoundLine + 1;
+                // Capture all lines after the sent text, skipping lines containing sentText
                 let outputTo = totalLines;
 
                 // Trim trailing blank lines
-                for (let i = outputTo - 1; i >= outputFrom; i--) {
+                for (let i = outputTo - 1; i >= sentTextFoundLine; i--) {
                     const line = buf.getLine(i);
                     if (line && line.translateToString(true).trim()) break;
                     outputTo = i;
                 }
 
                 const htmlParts = [];
-                for (let j = outputFrom; j < outputTo; j++) {
+                for (let j = sentTextFoundLine; j < outputTo; j++) {
+                    const line = buf.getLine(j);
+                    if (!line) continue;
+                    const text = line.translateToString(true);
+                    // Skip lines that contain the user's sent text
+                    if (text.includes(sentText)) continue;
                     const { html } = bufferLineToHtml(buf, j);
                     htmlParts.push(html);
                 }
