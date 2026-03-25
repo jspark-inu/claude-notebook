@@ -1,4 +1,4 @@
-/* === Workspace Viewer App — Finder + File Management === */
+/* === Claude Notebook App — Finder + File Management === */
 
 (function () {
     const treeEl = document.getElementById('tree');
@@ -65,7 +65,7 @@
 
     // === Terminal button ===
     document.getElementById('terminalBtn').addEventListener('click', () => {
-        window.location.href = (window.__VIEWER_BASE || '/workspace-viewer') + '/terminal';
+        window.location.href = (window.__VIEWER_BASE || '/claude-notebook') + '/terminal';
     });
 
     // Configure marked

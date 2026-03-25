@@ -1,4 +1,4 @@
-# Workspace Viewer
+# Claude Notebook
 
 [한국어](README_KR.md)
 
@@ -15,8 +15,8 @@ A Jupyter Notebook extension that adds a **Notion-like file browser** and **term
 
 ```bash
 # Clone the repository
-git clone https://github.com/Harry24k/workspace-viewer.git
-cd workspace-viewer
+git clone https://github.com/Harry24k/claude-notebook.git
+cd claude-notebook
 
 # Install dependencies (includes Jupyter Notebook 6 and Tornado)
 pip install -r requirements.txt
@@ -28,7 +28,7 @@ jupyter serverextension enable --py jupyter_ext --sys-prefix
 jupyter notebook
 ```
 
-Then visit `http://localhost:8888/workspace-viewer` in your browser.
+Then visit `http://localhost:8888/claude-notebook` in your browser.
 
 ## Requirements
 

@@ -1,4 +1,4 @@
-"""Jupyter Notebook 6 server extension for Workspace Viewer."""
+"""Jupyter Notebook 6 server extension for Claude Notebook."""
 
 import json
 import os
@@ -155,7 +155,7 @@ IMAGE_CONTENT_TYPES = {
 # ---------------------------------------------------------------------------
 
 class BaseHandler(IPythonHandler):
-    """Common helpers shared by all Workspace Viewer handlers."""
+    """Common helpers shared by all Claude Notebook handlers."""
 
     def json_response(self, data):
         """Serialize *data* as JSON and finish the response."""
@@ -179,7 +179,7 @@ class BaseHandler(IPythonHandler):
 
     def get_workspace(self):
         """Return the workspace root ``Path``."""
-        return self.settings["workspace_viewer_path"]
+        return self.settings["claude_notebook_path"]
 
     def validate_path(self, file_path):
         """Validate *file_path* against the workspace and return the resolved ``Path``.
@@ -266,7 +266,7 @@ class WorkspaceViewerHandler(BaseHandler):
     @web.authenticated
     def get(self):
         base_url = self.settings.get("base_url", "/")
-        viewer_base = ujoin(base_url, "workspace-viewer")
+        viewer_base = ujoin(base_url, "claude-notebook")
         html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
         html = html.replace('href="/style.css"', f'href="{viewer_base}/static/style.css"')
         html = html.replace('src="/app.js"', f'src="{viewer_base}/static/app.js"')
@@ -284,7 +284,7 @@ class WorkspaceTerminalHandler(BaseHandler):
     @web.authenticated
     def get(self):
         base_url = self.settings.get("base_url", "/")
-        viewer_base = ujoin(base_url, "workspace-viewer")
+        viewer_base = ujoin(base_url, "claude-notebook")
         html = STATIC_DIR.joinpath("terminal.html").read_text(encoding="utf-8")
         html = html.replace('href="terminal.css"', f'href="{viewer_base}/static/terminal.css"')
         html = html.replace('src="terminal.js"', f'src="{viewer_base}/static/terminal.js"')
@@ -539,7 +539,7 @@ def _auto_create_terminals(nb_app):
 
 def load_jupyter_server_extension(nb_app):
     workspace = Path(nb_app.notebook_dir).resolve()
-    nb_app.web_app.settings["workspace_viewer_path"] = workspace
+    nb_app.web_app.settings["claude_notebook_path"] = workspace
 
     # Open new terminals in the workspace directory instead of process cwd
     term_mgr = nb_app.web_app.settings.get('terminal_manager')
@@ -548,22 +548,22 @@ def load_jupyter_server_extension(nb_app):
 
     base_url = nb_app.web_app.settings["base_url"]
     handlers = [
-        (ujoin(base_url, r"/workspace-viewer"), WorkspaceTerminalHandler),
-        (ujoin(base_url, r"/workspace-viewer/terminal"), WorkspaceTerminalHandler),
-        (ujoin(base_url, r"/workspace-viewer/files"), WorkspaceViewerHandler),
-        (ujoin(base_url, r"/workspace-viewer/static/(.+)"), WorkspaceStaticHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/tree"), WorkspaceTreeHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/file"), WorkspaceFileHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/upload"), WorkspaceUploadHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/save"), WorkspaceSaveHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/delete"), WorkspaceDeleteHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/download"), WorkspaceDownloadHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/terminal-upload"), TerminalUploadHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/terminal-names"), TerminalNamesHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/config"), ConfigHandler),
+        (ujoin(base_url, r"/claude-notebook"), WorkspaceTerminalHandler),
+        (ujoin(base_url, r"/claude-notebook/terminal"), WorkspaceTerminalHandler),
+        (ujoin(base_url, r"/claude-notebook/files"), WorkspaceViewerHandler),
+        (ujoin(base_url, r"/claude-notebook/static/(.+)"), WorkspaceStaticHandler),
+        (ujoin(base_url, r"/claude-notebook/api/tree"), WorkspaceTreeHandler),
+        (ujoin(base_url, r"/claude-notebook/api/file"), WorkspaceFileHandler),
+        (ujoin(base_url, r"/claude-notebook/api/upload"), WorkspaceUploadHandler),
+        (ujoin(base_url, r"/claude-notebook/api/save"), WorkspaceSaveHandler),
+        (ujoin(base_url, r"/claude-notebook/api/delete"), WorkspaceDeleteHandler),
+        (ujoin(base_url, r"/claude-notebook/api/download"), WorkspaceDownloadHandler),
+        (ujoin(base_url, r"/claude-notebook/api/terminal-upload"), TerminalUploadHandler),
+        (ujoin(base_url, r"/claude-notebook/api/terminal-names"), TerminalNamesHandler),
+        (ujoin(base_url, r"/claude-notebook/api/config"), ConfigHandler),
     ]
     nb_app.web_app.add_handlers(".*$", handlers)
-    nb_app.log.info("Workspace Viewer extension loaded at %s/workspace-viewer (workspace: %s)", base_url, workspace)
+    nb_app.log.info("Claude Notebook extension loaded at %s/claude-notebook (workspace: %s)", base_url, workspace)
 
     # Auto-create saved terminals
     _auto_create_terminals(nb_app)

@@ -1,4 +1,4 @@
-# Workspace Viewer
+# Claude Notebook
 
 [English](README.md)
 
@@ -15,8 +15,8 @@ Jupyter Notebook 위에 **Notion 스타일 파일 브라우저**와 **터미널 
 
 ```bash
 # 리포지토리 클론
-git clone https://github.com/Harry24k/workspace-viewer.git
-cd workspace-viewer
+git clone https://github.com/Harry24k/claude-notebook.git
+cd claude-notebook
 
 # 의존성 설치 (Jupyter Notebook 6 및 Tornado 포함)
 pip install -r requirements.txt
@@ -28,7 +28,7 @@ jupyter serverextension enable --py jupyter_ext --sys-prefix
 jupyter notebook
 ```
 
-그런 다음 브라우저에서 `http://localhost:8888/workspace-viewer`를 방문합니다.
+그런 다음 브라우저에서 `http://localhost:8888/claude-notebook`를 방문합니다.
 
 ## 요구사항
 
