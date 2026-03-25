@@ -1581,7 +1581,7 @@
             pendingOutputStart = buf.baseY + buf.cursorY + 1;
             waitingForOutput = true;
             chatSentFromInput = true;
-            lastSeenLines = pendingOutputStart;
+            lastContentHash = '';
             idleSince = 0;
             scrollChatToBottom();
             // Send command
@@ -1599,24 +1599,38 @@
             }
         }
 
-        // Poll: detect output completion by idle timeout (no new lines for 1.5s)
-        let lastSeenLines = 0;
+        // Poll: detect output completion by content change + idle timeout
+        let lastContentHash = '';
         let idleSince = 0;
-        const IDLE_THRESHOLD = 3000; // ms with no new output → consider done
+        const IDLE_THRESHOLD = 3000; // ms with no content change → consider done
+
+        function getVisibleContentHash(buf) {
+            // Hash the last few visible lines to detect ANY change (including overwrites)
+            const totalLines = buf.baseY + buf.cursorY + 1;
+            let h = totalLines + ':';
+            const start = Math.max(0, totalLines - 5);
+            for (let i = start; i < totalLines; i++) {
+                const line = buf.getLine(i);
+                if (line) h += line.translateToString(false);
+            }
+            return h;
+        }
 
         function pollOutputComplete() {
             if (!currentTerm || !waitingForOutput) return;
             const buf = currentTerm.buffer.active;
             const totalLines = buf.baseY + buf.cursorY + 1;
 
-            if (totalLines > lastSeenLines) {
-                // New output appeared — reset idle timer
-                lastSeenLines = totalLines;
+            // Check if visible content has changed
+            const currentHash = getVisibleContentHash(buf);
+            if (currentHash !== lastContentHash) {
+                // Content changed — reset idle timer
+                lastContentHash = currentHash;
                 idleSince = Date.now();
                 return;
             }
 
-            // No new lines — check if idle long enough
+            // Content unchanged — check if idle long enough
             if (!idleSince) { idleSince = Date.now(); return; }
             if (Date.now() - idleSince < IDLE_THRESHOLD) return;
 
