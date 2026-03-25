@@ -33,7 +33,7 @@
         .layout {
             display: flex;
             height: 100vh;
-            height: 100dvh;
+            height: 100svh;
         }
 
         /* Sidebar */
@@ -194,9 +194,6 @@
             gap: 8px;
             min-height: 48px;
             flex-shrink: 0;
-            position: sticky;
-            top: 0;
-            z-index: 5;
         }
         .term-toolbar-title {
             font-size: 13px;
@@ -1577,53 +1574,61 @@
         });
 
         // ANSI 16-color palette — GitHub-style for light background (#f6f8fa)
-        const ANSI_COLORS = [
+        const ANSI16 = [
             '#1f2328','#cf222e','#116329','#9a6700','#0550ae','#8250df','#0e7490','#59636e',
             '#6e7781','#d1242f','#1a7f37','#b35900','#0969da','#8250df','#0e7490','#1f2328',
         ];
+        // 256-color: generate the 6x6x6 cube + grayscale
+        const ANSI256 = [...ANSI16];
+        // 16-231: 6x6x6 color cube
+        for (let r = 0; r < 6; r++)
+            for (let g = 0; g < 6; g++)
+                for (let b = 0; b < 6; b++)
+                    ANSI256.push('#' + [r,g,b].map(v => (v ? v*40+55 : 0).toString(16).padStart(2,'0')).join(''));
+        // 232-255: grayscale
+        for (let i = 0; i < 24; i++) {
+            const v = (8 + i * 10).toString(16).padStart(2, '0');
+            ANSI256.push('#' + v + v + v);
+        }
 
-        // Convert a buffer line to HTML with color spans
+        // Convert buffer line → HTML with color/bold/italic spans
         function bufferLineToHtml(buf, lineIdx) {
             const line = buf.getLine(lineIdx);
             if (!line) return { text: '', html: '' };
             const text = line.translateToString(true);
+            if (!text.trim()) return { text, html: escText(text) };
             try {
                 let html = '';
-                let lastFg = null, lastBold = false, lastItalic = false, spanOpen = false;
+                let curStyle = '', spanOpen = false;
                 const cols = line.length;
                 for (let x = 0; x < cols; x++) {
-                    let c;
-                    try { c = line.getCell(x); } catch(e) { break; }
-                    if (!c) break;
+                    const c = line.getCell(x);
+                    if (!c) continue;
                     const ch = c.getChars();
                     if (!ch) continue;
-                    let fg = null, bold = false, italic = false;
+                    // Build style string for this cell
+                    let style = '';
                     try {
                         const fgMode = c.getFgColorMode();
-                        bold = !!c.isBold();
-                        italic = !!c.isItalic();
-                        if (fgMode === 1) fg = ANSI_COLORS[c.getFgColor() & 0xf];
-                        else if (fgMode === 3) {
-                            const rgb = c.getFgColor();
-                            fg = '#' + ((rgb >> 16) & 0xff).toString(16).padStart(2,'0')
-                                     + ((rgb >> 8) & 0xff).toString(16).padStart(2,'0')
-                                     + (rgb & 0xff).toString(16).padStart(2,'0');
+                        const fgVal = c.getFgColor();
+                        let color = null;
+                        if (fgMode === 1 && fgVal >= 0 && fgVal < 16) color = ANSI16[fgVal];
+                        else if (fgMode === 2 && fgVal >= 0 && fgVal < 256) color = ANSI256[fgVal];
+                        else if (fgMode === 3 && fgVal > 0) {
+                            color = '#' + ((fgVal >> 16) & 0xff).toString(16).padStart(2,'0')
+                                       + ((fgVal >> 8) & 0xff).toString(16).padStart(2,'0')
+                                       + (fgVal & 0xff).toString(16).padStart(2,'0');
                         }
-                    } catch(e) { /* API not available, skip styling */ }
-
-                    const changed = fg !== lastFg || bold !== lastBold || italic !== lastItalic;
-                    if (changed) {
-                        if (spanOpen) html += '</span>';
-                        spanOpen = false;
-                        if (fg || bold || italic) {
-                            let style = '';
-                            if (fg) style += 'color:' + fg + ';';
-                            if (bold) style += 'font-weight:700;';
-                            if (italic) style += 'font-style:italic;';
-                            html += '<span style="' + style + '">';
-                            spanOpen = true;
-                        }
-                        lastFg = fg; lastBold = bold; lastItalic = italic;
+                        if (color) style += 'color:' + color + ';';
+                        if (c.isBold && c.isBold()) style += 'font-weight:700;';
+                        if (c.isItalic && c.isItalic()) style += 'font-style:italic;';
+                        if (c.isUnderline && c.isUnderline()) style += 'text-decoration:underline;';
+                    } catch(e) {}
+                    // Only open/close span when style changes
+                    if (style !== curStyle) {
+                        if (spanOpen) { html += '</span>'; spanOpen = false; }
+                        if (style) { html += '<span style="' + style + '">'; spanOpen = true; }
+                        curStyle = style;
                     }
                     if (ch === '<') html += '&lt;';
                     else if (ch === '>') html += '&gt;';
@@ -1631,9 +1636,9 @@
                     else html += ch;
                 }
                 if (spanOpen) html += '</span>';
-                return { text, html: html || escText(text) };
+                return { text, html: html.length > 0 ? html : escText(text) };
             } catch(e) {
-                // Fallback: plain text if cell API fails
+                console.warn('bufferLineToHtml error:', e);
                 return { text, html: escText(text) };
             }
         }

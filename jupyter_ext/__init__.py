@@ -218,32 +218,43 @@ class WorkspaceFileHandler(IPythonHandler):
         workspace = self.settings["workspace_viewer_path"]
         file_path = self.get_argument("path", None)
         raw_mode = self.get_argument("raw", None)
-        if not file_path or not is_safe_path(workspace, file_path):
-            raise web.HTTPError(400, "Invalid path")
+        if not file_path:
+            raise web.HTTPError(400, "path required")
+        if not is_safe_path(workspace, file_path):
+            raise web.HTTPError(400, "Invalid path: %s" % file_path)
         full_path = (workspace / file_path).resolve()
         if not full_path.is_file():
-            raise web.HTTPError(404, "File not found")
+            raise web.HTTPError(404, "Not found: %s" % file_path)
         ext = full_path.suffix.lower()
 
-        # Raw mode or image: serve as binary
+        # Image or raw mode: serve as binary
         if raw_mode is not None or ext in IMAGE_CONTENT_TYPES:
             ct = IMAGE_CONTENT_TYPES.get(ext, 'application/octet-stream')
             self.set_header("Content-Type", ct)
             self.set_header("Cache-Control", "public, max-age=3600")
-            self.finish(full_path.read_bytes())
+            try:
+                self.finish(full_path.read_bytes())
+            except Exception as e:
+                raise web.HTTPError(500, "Read error: %s" % str(e))
             return
 
         try:
             content = full_path.read_text(encoding="utf-8")
-            self.set_header("Content-Type", "application/json; charset=utf-8")
-            self.finish(json.dumps({
-                "path": file_path,
-                "name": full_path.name,
-                "content": content,
-                "extension": ext,
-            }, ensure_ascii=False))
+        except UnicodeDecodeError:
+            # Binary file that's not in IMAGE_CONTENT_TYPES — serve raw
+            self.set_header("Content-Type", "application/octet-stream")
+            self.finish(full_path.read_bytes())
+            return
         except Exception as e:
             raise web.HTTPError(500, str(e))
+
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.finish(json.dumps({
+            "path": file_path,
+            "name": full_path.name,
+            "content": content,
+            "extension": ext,
+        }, ensure_ascii=False))
 
 
 def _jupyter_server_extension_paths():

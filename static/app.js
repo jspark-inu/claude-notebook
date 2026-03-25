@@ -183,7 +183,10 @@
             if (IMAGE_EXTS.includes(ext)) {
                 const imgUrl = `${base}/api/file?path=${encodeURIComponent(path)}`;
                 const imgRes = await fetch(imgUrl, fetchOpts);
-                if (!imgRes.ok) throw new Error('Image not found (HTTP ' + imgRes.status + ')');
+                if (!imgRes.ok) {
+                    const errText = await imgRes.text().catch(() => '');
+                    throw new Error('Image load failed: HTTP ' + imgRes.status + ' ' + errText.substring(0, 100));
+                }
                 const blob = await imgRes.blob();
                 const objectUrl = URL.createObjectURL(blob);
                 contentEl.innerHTML = `
