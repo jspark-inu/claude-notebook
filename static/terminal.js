@@ -302,7 +302,6 @@ function renderList(terminals) {
             if (e.target.closest('.term-item-close')) return;
             if (e.target.closest('.term-item-name')?.isContentEditable) return;
             connectTerminal(t.name);
-            closeSidebar();
         });
         // Double-click name to rename
         const nameEl = item.querySelector('.term-item-name');
@@ -1252,7 +1251,6 @@ newTermBtn.addEventListener('click', async () => {
         // No name -> temporary terminal (not saved, disappears on restart)
 
         connectTerminal(data.name);
-        closeSidebar();
 
         // Execute startup command via WebSocket after connection
         if (result.command && result.command.trim()) {
