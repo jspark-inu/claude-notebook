@@ -1602,7 +1602,7 @@
         // Poll: detect output completion by idle timeout (no new lines for 1.5s)
         let lastSeenLines = 0;
         let idleSince = 0;
-        const IDLE_THRESHOLD = 1500; // ms with no new output → consider done
+        const IDLE_THRESHOLD = 3000; // ms with no new output → consider done
 
         function pollOutputComplete() {
             if (!currentTerm || !waitingForOutput) return;
@@ -1621,9 +1621,24 @@
             if (Date.now() - idleSince < IDLE_THRESHOLD) return;
 
             // Idle timeout reached — output is done!
-            // Collect ALL lines from pendingOutputStart — no filtering
-            let outputFrom = pendingOutputStart;
+            // For interactive TUIs (like Claude Code), the buffer may have been
+            // overwritten via cursor movement. Read the entire visible viewport.
+            const viewportStart = buf.baseY;  // first visible line
+            let outputFrom = viewportStart;
             let outputTo = totalLines;
+
+            // Trim leading blank lines
+            for (let i = outputFrom; i < outputTo; i++) {
+                const line = buf.getLine(i);
+                if (line && line.translateToString(true).trim()) break;
+                outputFrom = i + 1;
+            }
+            // Trim trailing blank lines
+            for (let i = outputTo - 1; i >= outputFrom; i--) {
+                const line = buf.getLine(i);
+                if (line && line.translateToString(true).trim()) break;
+                outputTo = i;
+            }
 
             const htmlParts = [];
             for (let j = outputFrom; j < outputTo; j++) {
