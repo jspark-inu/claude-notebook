@@ -672,7 +672,6 @@ html, body {
     background: #fff;
 }
 .csv-table {
-    min-width: 100%;
     border-collapse: separate;
     border-spacing: 0;
     font-size: 13px;
