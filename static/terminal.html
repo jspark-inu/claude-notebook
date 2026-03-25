@@ -1623,21 +1623,11 @@
             const isPrompt = /^❯\s*$/.test(lastNonEmpty) || /[❯\$%>]\s*$/.test(lastNonEmpty);
             if (lastNonEmptyIdx < 0 || !isPrompt) return;
 
-            // Output is done! Collect output lines (skip echo line)
+            // Output is done! Collect output lines
+            // Note: echo line is BEFORE pendingOutputStart (on the prompt line itself),
+            // so no need to skip anything here.
             let outputFrom = pendingOutputStart;
-            // Skip first non-empty line if it contains the echoed command
-            if (chatSentFromInput) {
-                for (let j = pendingOutputStart; j < lastNonEmptyIdx; j++) {
-                    const l = buf.getLine(j);
-                    if (!l) continue;
-                    const t = l.translateToString(true);
-                    if (!t.trim()) continue;
-                    // First non-empty line is likely the echo — skip it
-                    outputFrom = j + 1;
-                    break;
-                }
-                chatSentFromInput = false;
-            }
+            chatSentFromInput = false;
 
             const htmlParts = [];
             for (let j = outputFrom; j < lastNonEmptyIdx; j++) {
