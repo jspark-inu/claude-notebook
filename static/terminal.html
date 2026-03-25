@@ -569,42 +569,28 @@
             background: #f6f8fa;
             color: #1f2328;
             border-bottom-left-radius: 4px;
-            border: 1px solid #d1d9e0;
-            border-radius: 12px;
-            border-bottom-left-radius: 4px;
-            padding: 0;
-            overflow: hidden;
-        }
-        /* xterm inside bubble — override xterm styles */
-        .chat-msg-row.received .chat-bubble .xterm {
-            padding: 6px 4px;
-        }
-        .chat-msg-row.received .chat-bubble .xterm-viewport {
-            overflow: hidden !important;
-        }
-        .chat-msg-row.received .chat-bubble .xterm-screen {
-            width: 100% !important;
-        }
-        /* Frozen bubble with canvas screenshot */
-        .chat-msg-row.received .chat-bubble img.frozen-terminal {
-            display: block;
-            width: 100%;
-            height: auto;
-            image-rendering: auto;
-        }
-        /* HTML fallback bubble */
-        .chat-msg-row.received .chat-bubble.html-fallback {
             font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', 'Menlo', monospace, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
             font-size: 12.5px;
-            line-height: 1.55;
-            white-space: pre;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
             scrollbar-width: thin;
             scrollbar-color: #c8c8cc transparent;
+            border: 1px solid #d1d9e0;
+            border-radius: 12px;
+            border-bottom-left-radius: 4px;
             padding: 10px 14px;
-            tab-size: 4;
-            -moz-tab-size: 4;
+            tab-size: 8;
+            -moz-tab-size: 8;
+        }
+        .chat-msg-row.received .chat-bubble::-webkit-scrollbar {
+            height: 4px;
+        }
+        .chat-msg-row.received .chat-bubble::-webkit-scrollbar-thumb {
+            background: #c8c8cc;
+            border-radius: 4px;
         }
         /* Typing indicator */
         .chat-typing-wrap {
@@ -1274,9 +1260,8 @@
             chatView.classList.remove('active');
             chatMessages.innerHTML = '';
             chatProcessedLine = 0;
-            chatLiveMode = 'idle';
-            if (mirrorTerm) { try { mirrorTerm.dispose(); } catch(e) {} }
-            mirrorTerm = null; mirrorBubble = null; mirrorContainer = null;
+            liveMode = 'idle';
+            liveBubble = null;
             lastChatTimeStr = '';
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
             chatTyping.classList.remove('active');
@@ -1392,8 +1377,6 @@
                     const msg = JSON.parse(event.data);
                     if (msg[0] === 'stdout') {
                         currentTerm.write(msg[1]);
-                        // Dual-write to mirror xterm in chat bubble
-                        writeMirrorData(msg[1]);
                     } else if (msg[0] === 'disconnect') {
                         statusDot.classList.add('disconnected');
                     }
@@ -1534,164 +1517,15 @@
             }
         });
 
-        // ===== iMessage Chat — mirror xterm in bubble =====
+        // ===== iMessage Chat — live HTML bubble =====
         let chatSnapshotTimer = null;
         let lastChatTimeStr = '';
-        let chatTypingTimeout = null;
-        // Mirror xterm state
-        let mirrorTerm = null;          // current live mirror Terminal instance
-        let mirrorFit = null;           // FitAddon for mirror
-        let mirrorBubble = null;        // current live bubble DOM element
-        let mirrorContainer = null;     // div inside bubble that holds xterm
-        let chatProcessedLine = 0;      // buffer lines already frozen
-        let chatLiveStartLine = 0;      // where current live block starts
-        let chatLiveMode = 'idle';      // 'idle' | 'receiving'
+        // Live bubble state
+        let chatProcessedLine = 0;      // buffer lines already frozen into past bubbles
+        let liveBubble = null;          // current live received bubble DOM element
+        let liveStartLine = 0;          // buffer line where live bubble content starts
+        let liveMode = 'idle';          // 'idle' | 'receiving'
         let chatSentFromInput = false;  // echo suppression flag
-        let mirrorWriteQueue = [];      // raw data to write to mirror
-
-        // Light theme for mirror xterm
-        const LIGHT_THEME = {
-            background: '#f6f8fa',
-            foreground: '#1f2328',
-            cursor: '#1f2328',
-            cursorAccent: '#f6f8fa',
-            selectionBackground: '#b6d7ff',
-            black: '#1f2328',
-            red: '#cf222e',
-            green: '#116329',
-            yellow: '#9a6700',
-            blue: '#0550ae',
-            magenta: '#8250df',
-            cyan: '#0e7490',
-            white: '#6e7781',
-            brightBlack: '#6e7781',
-            brightRed: '#d1242f',
-            brightGreen: '#1a7f37',
-            brightYellow: '#b35900',
-            brightBlue: '#0969da',
-            brightMagenta: '#8250df',
-            brightCyan: '#0e7490',
-            brightWhite: '#1f2328',
-        };
-
-        function createMirrorInBubble() {
-            // Time separator
-            const now = new Date();
-            const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-            if (timeStr !== lastChatTimeStr) {
-                const sep = document.createElement('div');
-                sep.className = 'chat-time-sep';
-                sep.textContent = timeStr;
-                chatMessages.appendChild(sep);
-                lastChatTimeStr = timeStr;
-            }
-            // Create bubble row
-            const row = document.createElement('div');
-            row.className = 'chat-msg-row received';
-            const bubble = document.createElement('div');
-            bubble.className = 'chat-bubble';
-            const container = document.createElement('div');
-            container.style.cssText = 'width:100%;min-height:20px;';
-            bubble.appendChild(container);
-            row.appendChild(bubble);
-            chatMessages.appendChild(row);
-
-            // Create mirror xterm
-            mirrorTerm = new Terminal({
-                cursorBlink: false,
-                cursorStyle: 'bar',
-                cursorWidth: 1,
-                fontSize: 13,
-                fontFamily: "'SFMono-Regular', 'Fira Code', 'Consolas', 'Courier New', monospace",
-                theme: LIGHT_THEME,
-                scrollback: 5000,
-                disableStdin: true,
-                convertEol: false,
-                allowProposedApi: true,
-            });
-            mirrorFit = new FitAddon.FitAddon();
-            mirrorTerm.loadAddon(mirrorFit);
-            mirrorTerm.open(container);
-
-            // Fit to bubble width
-            setTimeout(() => {
-                try { mirrorFit.fit(); } catch(e) {}
-            }, 30);
-
-            mirrorBubble = bubble;
-            mirrorContainer = container;
-            mirrorWriteQueue = [];
-            return bubble;
-        }
-
-        function freezeMirrorBubble() {
-            if (!mirrorTerm || !mirrorBubble) return;
-            try {
-                // Get the canvas and create a screenshot
-                const canvas = mirrorContainer.querySelector('canvas.xterm-text-layer, canvas.xterm-cursor-layer');
-                // Get all canvases and composite
-                const canvases = mirrorContainer.querySelectorAll('.xterm-screen canvas');
-                if (canvases.length > 0) {
-                    // Use the screen element dimensions
-                    const screen = mirrorContainer.querySelector('.xterm-screen');
-                    const w = screen ? screen.offsetWidth : canvases[0].width;
-                    const h = screen ? screen.offsetHeight : canvases[0].height;
-                    const composite = document.createElement('canvas');
-                    composite.width = w * (window.devicePixelRatio || 1);
-                    composite.height = h * (window.devicePixelRatio || 1);
-                    composite.style.width = w + 'px';
-                    composite.style.height = h + 'px';
-                    const ctx = composite.getContext('2d');
-                    // Draw background
-                    ctx.fillStyle = '#f6f8fa';
-                    ctx.fillRect(0, 0, composite.width, composite.height);
-                    // Draw each canvas layer
-                    canvases.forEach(c => {
-                        ctx.drawImage(c, 0, 0, composite.width, composite.height);
-                    });
-                    const dataUrl = composite.toDataURL('image/png');
-                    // Replace xterm with image
-                    mirrorTerm.dispose();
-                    mirrorBubble.innerHTML = '';
-                    const img = document.createElement('img');
-                    img.className = 'frozen-terminal';
-                    img.src = dataUrl;
-                    mirrorBubble.appendChild(img);
-                } else {
-                    // Fallback: use HTML from buffer
-                    freezeMirrorAsHtml();
-                }
-            } catch(e) {
-                console.warn('freezeMirrorBubble error:', e);
-                freezeMirrorAsHtml();
-            }
-            mirrorTerm = null;
-            mirrorFit = null;
-            mirrorBubble = null;
-            mirrorContainer = null;
-        }
-
-        function freezeMirrorAsHtml() {
-            // Fallback: convert mirror content to HTML
-            if (!mirrorTerm || !mirrorBubble) return;
-            const buf = mirrorTerm.buffer.active;
-            const totalLines = buf.baseY + buf.cursorY + 1;
-            const htmlParts = [];
-            for (let i = 0; i < totalLines; i++) {
-                const { html } = bufferLineToHtml(buf, i);
-                htmlParts.push(html);
-            }
-            mirrorTerm.dispose();
-            mirrorBubble.innerHTML = '';
-            mirrorBubble.classList.add('html-fallback');
-            mirrorBubble.innerHTML = htmlParts.join('\n').replace(/(\n\s*)+$/, '');
-        }
-
-        function writeMirrorData(data) {
-            if (mirrorTerm && chatLiveMode === 'receiving') {
-                mirrorTerm.write(data);
-            }
-        }
 
         function openChat() {
             chatMode = true;
@@ -1702,75 +1536,17 @@
             chatContactStatus.classList.remove('typing');
             chatMessages.innerHTML = '';
             chatProcessedLine = 0;
-            chatLiveStartLine = 0;
-            chatLiveMode = 'idle';
+            liveStartLine = 0;
+            liveMode = 'idle';
+            liveBubble = null;
             chatSentFromInput = false;
-            if (mirrorTerm) { try { mirrorTerm.dispose(); } catch(e) {} }
-            mirrorTerm = null; mirrorBubble = null; mirrorContainer = null;
             lastChatTimeStr = '';
             chatView.classList.add('active');
-            // Build initial bubbles from existing buffer using HTML (history)
-            buildInitialBubbles();
+            // Build all existing buffer content as bubbles
+            buildBubblesFromBuffer(0);
             scrollChatToBottom();
-            chatSnapshotTimer = setInterval(snapshotBuffer, 300);
+            chatSnapshotTimer = setInterval(snapshotBuffer, 250);
             chatInputField.focus();
-        }
-
-        function buildInitialBubbles() {
-            if (!currentTerm) return;
-            const buf = currentTerm.buffer.active;
-            const totalLines = buf.baseY + buf.cursorY + 1;
-            if (totalLines === 0) return;
-
-            let mode = 'received';
-            let sentTexts = [], recvHtmls = [];
-
-            function flushSent() {
-                const t = sentTexts.join('\n').replace(/\s+$/, '');
-                if (t) addChatBubbleHtml('sent', t);
-                sentTexts = [];
-            }
-            function flushRecv() {
-                const h = recvHtmls.join('\n').replace(/(\n\s*)+$/, '');
-                if (h && h.replace(/\s/g, '')) addChatBubbleHtml('received', h);
-                recvHtmls = [];
-            }
-
-            for (let i = 0; i < totalLines; i++) {
-                const line = buf.getLine(i);
-                if (!line) continue;
-                const text = line.translateToString(true);
-                const { html } = bufferLineToHtml(buf, i);
-                const promptMatch = text.match(/^❯ (.+)/);
-
-                if (promptMatch) {
-                    if (mode === 'sent') flushSent();
-                    else flushRecv();
-                    mode = 'sent';
-                    sentTexts.push(promptMatch[1]);
-                } else if (/^❯\s*$/.test(text)) {
-                    // Bare prompt — flush and skip
-                    if (mode === 'sent') flushSent();
-                    else flushRecv();
-                    mode = 'received';
-                } else if (mode === 'sent') {
-                    const isBlank = text.trim() === '';
-                    if (isBlank || /^\s/.test(text)) {
-                        flushSent();
-                        mode = 'received';
-                        recvHtmls.push(html);
-                    } else {
-                        sentTexts.push(text);
-                    }
-                } else {
-                    recvHtmls.push(html);
-                }
-            }
-            if (mode === 'sent') flushSent();
-            else flushRecv();
-
-            chatProcessedLine = totalLines;
-            chatLiveMode = 'idle';
         }
 
         function closeChat() {
@@ -1780,9 +1556,8 @@
             chatView.classList.remove('fullscreen');
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
             chatTyping.classList.remove('active');
-            if (mirrorTerm) { try { mirrorTerm.dispose(); } catch(e) {} }
-            mirrorTerm = null; mirrorBubble = null; mirrorContainer = null;
-            chatLiveMode = 'idle';
+            liveBubble = null;
+            liveMode = 'idle';
             if (fitAddon) setTimeout(() => fitAddon.fit(), 50);
         }
 
@@ -1796,12 +1571,10 @@
         function chatSendInput() {
             const text = chatInputField.value;
             if (!text || !currentWs || currentWs.readyState !== WebSocket.OPEN) return;
-            // Freeze current mirror if receiving
-            if (chatLiveMode === 'receiving') {
-                freezeMirrorBubble();
-            }
+            // Freeze current live bubble
+            freezeLiveBubble();
             addChatBubbleHtml('sent', text);
-            chatLiveMode = 'idle';
+            liveMode = 'idle';
             chatSentFromInput = true;
             scrollChatToBottom();
             currentWs.send(JSON.stringify(["stdin", text]));
@@ -1960,79 +1733,137 @@
             return hex;
         }
 
-        // Snapshot xterm buffer → detect prompts and manage live mirror bubble
+        // Read buffer lines from startLine..endLine-1 as rich HTML
+        function readBufferHtml(buf, startLine, endLine) {
+            const parts = [];
+            for (let i = startLine; i < endLine; i++) {
+                const { html } = bufferLineToHtml(buf, i);
+                parts.push(html);
+            }
+            return parts.join('\n').replace(/(\n\s*)+$/, '');
+        }
+
+        // Build bubbles from buffer range, detect sent/received blocks
+        function buildBubblesFromBuffer(fromLine) {
+            if (!currentTerm) return;
+            const buf = currentTerm.buffer.active;
+            const totalLines = buf.baseY + buf.cursorY + 1;
+
+            let recvStart = -1;
+
+            for (let i = fromLine; i < totalLines; i++) {
+                const line = buf.getLine(i);
+                if (!line) continue;
+                const text = line.translateToString(true);
+                const promptCmd = text.match(/^❯ (.+)/);
+
+                if (promptCmd) {
+                    // Flush pending received block
+                    if (recvStart >= 0) {
+                        const html = readBufferHtml(buf, recvStart, i);
+                        if (html.trim()) addChatBubbleHtml('received', html);
+                        recvStart = -1;
+                    }
+                    addChatBubbleHtml('sent', promptCmd[1]);
+                    chatProcessedLine = i + 1;
+                } else if (/^❯\s*$/.test(text)) {
+                    // Bare prompt
+                    if (recvStart >= 0) {
+                        const html = readBufferHtml(buf, recvStart, i);
+                        if (html.trim()) addChatBubbleHtml('received', html);
+                        recvStart = -1;
+                    }
+                    chatProcessedLine = i + 1;
+                } else {
+                    // Output line
+                    if (recvStart < 0) recvStart = i;
+                }
+            }
+
+            // Remaining received lines → live bubble
+            if (recvStart >= 0) {
+                const html = readBufferHtml(buf, recvStart, totalLines);
+                if (html.trim()) {
+                    liveBubble = addChatBubbleHtml('received', html);
+                    liveStartLine = recvStart;
+                    liveMode = 'receiving';
+                }
+            } else {
+                liveMode = 'idle';
+                liveBubble = null;
+            }
+        }
+
+        function freezeLiveBubble() {
+            if (liveBubble) {
+                liveBubble = null;
+            }
+            hideTyping();
+        }
+
+        // Snapshot: detect new prompts in buffer, update live bubble
         function snapshotBuffer() {
             if (!currentTerm) return;
             const buf = currentTerm.buffer.active;
             const totalLines = buf.baseY + buf.cursorY + 1;
-            if (totalLines <= chatProcessedLine && chatLiveMode !== 'receiving') return;
 
-            // Scan unprocessed lines for prompts
-            for (let i = chatProcessedLine; i < totalLines; i++) {
+            // Phase 1: scan for new prompts after chatProcessedLine
+            let scanFrom = chatProcessedLine;
+            if (liveMode === 'receiving') scanFrom = liveStartLine;
+
+            for (let i = scanFrom; i < totalLines; i++) {
                 const line = buf.getLine(i);
                 if (!line) continue;
                 const text = line.translateToString(true);
 
                 if (/^❯ (.+)/.test(text)) {
                     const cmd = text.match(/^❯ (.+)/)[1];
-                    // Freeze any live mirror
-                    if (chatLiveMode === 'receiving') {
-                        freezeMirrorBubble();
-                        hideTyping();
+                    // Freeze live bubble with content before this prompt
+                    if (liveMode === 'receiving' && liveBubble) {
+                        const html = readBufferHtml(buf, liveStartLine, i);
+                        if (html.trim()) liveBubble.innerHTML = html;
+                        else liveBubble.parentElement.remove();
+                        freezeLiveBubble();
                     }
-                    // Create sent bubble (skip if echo from chatSendInput)
+                    // Create sent bubble
                     if (chatSentFromInput) {
                         chatSentFromInput = false;
                     } else {
                         addChatBubbleHtml('sent', cmd);
                     }
                     chatProcessedLine = i + 1;
-                    chatLiveMode = 'idle';
-                } else if (/^❯\s*$/.test(text)) {
-                    // Bare prompt — freeze and skip
-                    if (chatLiveMode === 'receiving') {
-                        freezeMirrorBubble();
-                        hideTyping();
+                    liveMode = 'idle';
+                    continue;
+                }
+
+                if (/^❯\s*$/.test(text)) {
+                    // Bare prompt
+                    if (liveMode === 'receiving' && liveBubble) {
+                        const html = readBufferHtml(buf, liveStartLine, i);
+                        if (html.trim()) liveBubble.innerHTML = html;
+                        else liveBubble.parentElement.remove();
+                        freezeLiveBubble();
                     }
                     chatProcessedLine = i + 1;
-                    chatLiveMode = 'idle';
-                } else if (chatLiveMode === 'idle') {
-                    // First output line → start live mirror bubble
-                    chatLiveStartLine = i;
-                    chatLiveMode = 'receiving';
-                    createMirrorInBubble();
+                    liveMode = 'idle';
+                    continue;
+                }
+
+                // Non-prompt line
+                if (liveMode === 'idle') {
+                    // Start new live bubble
+                    liveStartLine = i;
+                    liveMode = 'receiving';
+                    liveBubble = addChatBubbleHtml('received', '');
                     showTyping();
-                    break; // Let dual-write handle content from here
                 }
             }
 
-            // If receiving, check if a prompt appeared in the live area
-            if (chatLiveMode === 'receiving') {
-                for (let i = Math.max(chatLiveStartLine, chatProcessedLine); i < totalLines; i++) {
-                    const line = buf.getLine(i);
-                    if (!line) continue;
-                    const text = line.translateToString(true);
-                    if (/^❯/.test(text)) {
-                        freezeMirrorBubble();
-                        hideTyping();
-                        const cmd = text.match(/^❯ (.+)/);
-                        if (cmd) {
-                            if (chatSentFromInput) {
-                                chatSentFromInput = false;
-                            } else {
-                                addChatBubbleHtml('sent', cmd[1]);
-                            }
-                        }
-                        chatProcessedLine = i + 1;
-                        chatLiveMode = 'idle';
-                        scrollChatToBottom();
-                        break;
-                    }
-                }
-                // Fit mirror periodically
-                if (mirrorFit && mirrorTerm) {
-                    try { mirrorFit.fit(); } catch(e) {}
-                }
+            // Phase 2: update live bubble content
+            if (liveMode === 'receiving' && liveBubble) {
+                const html = readBufferHtml(buf, liveStartLine, totalLines);
+                liveBubble.innerHTML = html;
+                if (html.trim()) hideTyping();
                 scrollChatToBottom();
             }
         }
@@ -2067,15 +1898,14 @@
             const bubble = document.createElement('div');
             bubble.className = 'chat-bubble';
             if (type === 'received') {
-                bubble.classList.add('html-fallback');
-                const clean = content.replace(/(\n\s*)+$/, '');
-                bubble.innerHTML = clean;
+                bubble.innerHTML = content;
             } else {
                 bubble.textContent = content;
             }
             row.appendChild(bubble);
             chatMessages.appendChild(row);
             scrollChatToBottom();
+            return bubble; // return for live bubble reference
         }
 
         function scrollChatToBottom() {
