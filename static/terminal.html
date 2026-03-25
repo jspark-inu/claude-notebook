@@ -1581,6 +1581,8 @@
             pendingOutputStart = buf.baseY + buf.cursorY + 1;
             waitingForOutput = true;
             chatSentFromInput = true;
+            lastSeenLines = pendingOutputStart;
+            idleSince = 0;
             scrollChatToBottom();
             // Send command
             currentWs.send(JSON.stringify(["stdin", text]));
@@ -1597,40 +1599,55 @@
             }
         }
 
-        // Poll: check if a new bare prompt (❯) appeared at end of buffer → output is done
+        // Poll: detect output completion by idle timeout (no new lines for 1.5s)
+        let lastSeenLines = 0;
+        let idleSince = 0;
+        const IDLE_THRESHOLD = 1500; // ms with no new output → consider done
+
         function pollOutputComplete() {
             if (!currentTerm || !waitingForOutput) return;
             const buf = currentTerm.buffer.active;
             const totalLines = buf.baseY + buf.cursorY + 1;
-            if (totalLines <= pendingOutputStart) return;
 
-            // Check the last non-empty line — is it a bare prompt?
-            let lastNonEmpty = '';
-            let lastNonEmptyIdx = -1;
-            for (let i = totalLines - 1; i >= pendingOutputStart; i--) {
-                const line = buf.getLine(i);
-                if (!line) continue;
-                const text = line.translateToString(true);
-                if (text.trim()) {
-                    lastNonEmpty = text;
-                    lastNonEmptyIdx = i;
-                    break;
+            if (totalLines > lastSeenLines) {
+                // New output appeared — reset idle timer
+                lastSeenLines = totalLines;
+                idleSince = Date.now();
+                return;
+            }
+
+            // No new lines — check if idle long enough
+            if (!idleSince) { idleSince = Date.now(); return; }
+            if (Date.now() - idleSince < IDLE_THRESHOLD) return;
+
+            // Idle timeout reached — output is done!
+            // Collect all lines from pendingOutputStart to current
+            // Skip the first line if it looks like the echoed command (contains the prompt char)
+            let outputFrom = pendingOutputStart;
+            const firstLine = buf.getLine(pendingOutputStart);
+            if (firstLine) {
+                const firstText = firstLine.translateToString(true);
+                if (/❯/.test(firstText) || /\$\s/.test(firstText)) {
+                    outputFrom = pendingOutputStart + 1;
                 }
             }
 
-            // Not a bare prompt yet → still outputting
-            // Match: bare ❯, or lines ending with common prompts ($ % > ❯)
-            const isPrompt = /^❯\s*$/.test(lastNonEmpty) || /[❯\$%>]\s*$/.test(lastNonEmpty);
-            if (lastNonEmptyIdx < 0 || !isPrompt) return;
-
-            // Output is done! Collect output lines
-            // Note: echo line is BEFORE pendingOutputStart (on the prompt line itself),
-            // so no need to skip anything here.
-            let outputFrom = pendingOutputStart;
-            chatSentFromInput = false;
+            // Find last meaningful line (skip trailing prompt/blank lines)
+            let outputTo = totalLines;
+            for (let i = totalLines - 1; i >= outputFrom; i--) {
+                const line = buf.getLine(i);
+                if (!line) continue;
+                const text = line.translateToString(true);
+                // Stop at trailing prompt or blank lines
+                if (/^❯/.test(text) || /[❯\$%>]\s*$/.test(text) || !text.trim()) {
+                    outputTo = i;
+                    continue;
+                }
+                break;
+            }
 
             const htmlParts = [];
-            for (let j = outputFrom; j < lastNonEmptyIdx; j++) {
+            for (let j = outputFrom; j < outputTo; j++) {
                 const { html } = bufferLineToHtml(buf, j);
                 htmlParts.push(html);
             }
@@ -1642,6 +1659,7 @@
             scrollChatToBottom();
             chatLastLine = totalLines;
             waitingForOutput = false;
+            chatSentFromInput = false;
 
             // Resume normal history polling
             if (chatSnapshotTimer) clearInterval(chatSnapshotTimer);
