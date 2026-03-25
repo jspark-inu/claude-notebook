@@ -572,27 +572,21 @@
         });
 
         // Load terminal list
-        let lastTerminalJson = '';  // cache to skip unnecessary re-renders
+        let lastRenderKey = '';  // cache to skip unnecessary re-renders
 
         async function loadTerminals() {
             try {
                 const res = await fetch(JUPYTER + '/api/terminals');
                 if (!res.ok) throw new Error('Failed');
                 const data = await res.json();
-                // Skip re-render if terminal list hasn't changed
-                const newJson = JSON.stringify(data.map(t => t.name).sort());
-                if (newJson === lastTerminalJson) {
-                    // Just update terminalData silently
-                    data.forEach(t => { terminalData[t.name] = t; });
-                    return;
-                }
-                lastTerminalJson = newJson;
                 terminalData = {};
-                data.forEach(t => {
-                    terminalData[t.name] = t;
-                });
+                data.forEach(t => { terminalData[t.name] = t; });
                 await fetchServerSlots();
                 slotMap = buildSlotMap(data);
+                // Skip re-render if neither terminal list nor slot config changed
+                const renderKey = JSON.stringify(data.map(t => t.name).sort()) + JSON.stringify(serverSlots);
+                if (renderKey === lastRenderKey) return;
+                lastRenderKey = renderKey;
                 renderList(data);
             } catch (e) {
                 termList.innerHTML = '<div class="term-empty">Error loading terminals</div>';
