@@ -467,7 +467,7 @@
             background: #258fb5;
         }
 
-        /* ===== ChatGPT layout + Apple iMessage design ===== */
+        /* ===== iMessage Chat — light mode, position:fixed fullscreen ===== */
         .chat-view {
             display: none;
             position: absolute;
@@ -476,121 +476,225 @@
             background: #fff;
             z-index: 10;
         }
-        .chat-view.active { display: flex; }
-        .chat-header {
-            display: flex; align-items: center; gap: 10px;
-            padding: 10px 16px;
-            background: rgba(247,247,247,0.92);
-            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border-bottom: 0.5px solid #c6c6c8;
-            height: 48px; flex-shrink: 0;
+        .chat-view.active {
+            display: flex;
         }
-        .chat-back-btn { background:none; border:none; color:#007aff; cursor:pointer; padding:4px; display:flex; align-items:center; }
-        .chat-header-title { font-size:15px; font-weight:600; color:#000; flex:1; text-align:center; }
-        .chat-header-expand { background:none; border:none; color:#007aff; cursor:pointer; padding:4px; display:flex; align-items:center; }
-        /* Messages area */
+        .chat-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            background: #f7f7f7;
+            border-bottom: 1px solid #ddd;
+            height: 52px;
+            flex-shrink: 0;
+        }
+        .chat-back-btn {
+            background: none;
+            border: none;
+            color: #007aff;
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .chat-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: #c7c7cc;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .chat-contact-info { flex: 1; min-width: 0; }
+        .chat-contact-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: #000;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .chat-contact-status {
+            font-size: 11px;
+            color: #8e8e93;
+        }
+        .chat-contact-status.typing { color: #007aff; }
         .chat-messages {
             flex: 1;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
             overscroll-behavior-y: contain;
-            padding: 0;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
             background: #fff;
         }
-        /* Message block (ChatGPT style — full width) */
-        .chat-msg {
-            padding: 16px 20px;
-            border-bottom: 0.5px solid #f0f0f0;
+        .chat-time-sep {
+            text-align: center;
+            font-size: 11px;
+            color: #8e8e93;
+            padding: 12px 0 6px;
         }
-        .chat-msg.user {
-            background: #f7f7f8;
+        .chat-msg-row {
+            display: flex;
+            margin: 1px 0;
         }
-        .chat-msg.terminal {
-            background: #fff;
-        }
-        .chat-msg-head {
-            display: flex; align-items: center; gap: 8px;
-            margin-bottom: 8px;
-        }
-        .chat-msg-icon {
-            width: 28px; height: 28px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 13px; flex-shrink: 0;
-        }
-        .chat-msg.user .chat-msg-icon {
-            background: #007aff; color: #fff;
-        }
-        .chat-msg.terminal .chat-msg-icon {
-            background: #1e1e1e; color: #4ec9b0;
-        }
-        .chat-msg-sender {
-            font-size: 13px; font-weight: 600; color: #1f2328;
-        }
-        .chat-msg-time {
-            font-size: 11px; color: #8e8e93; margin-left: auto;
-        }
-        /* User command content */
-        .chat-msg.user .chat-msg-body {
-            font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace;
-            font-size: 14px; color: #1f2328;
+        .chat-msg-row.sent { justify-content: flex-end; }
+        .chat-msg-row.received { justify-content: flex-start; }
+        .chat-bubble {
             padding: 8px 12px;
-            background: #eff6ff;
-            border-radius: 8px;
-            border: 1px solid #d0e2ff;
+            border-radius: 18px;
+            font-size: 13px;
+            line-height: 1.45;
         }
-        /* Terminal output — static HTML */
-        .chat-msg.terminal .chat-msg-body {
-            font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace, 'Apple Color Emoji', 'Segoe UI Emoji';
-            font-size: 12.5px; line-height: 1.5;
+        .chat-msg-row.sent .chat-bubble {
+            max-width: 80%;
+            background: #007aff;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .chat-msg-row.received .chat-bubble {
+            max-width: 100%;
+            background: #f6f8fa;
             color: #1f2328;
+            border-bottom-left-radius: 4px;
+            font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', 'Menlo', monospace, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
+            font-size: 12.5px;
+            line-height: 1.55;
             white-space: pre;
             overflow-x: auto;
-            padding: 10px 12px;
-            background: #f6f8fa;
-            border-radius: 8px;
-            border: 1px solid #e5e7eb;
-            tab-size: 8; -moz-tab-size: 8;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            scrollbar-color: #c8c8cc transparent;
+            border: 1px solid #d1d9e0;
+            border-radius: 12px;
+            border-bottom-left-radius: 4px;
+            padding: 10px 14px;
+            tab-size: 4;
+            -moz-tab-size: 4;
+            word-break: keep-all;
         }
-        /* Terminal output — live xterm embed */
-        .chat-msg.terminal .chat-msg-body.live-xterm {
-            padding: 4px;
-            background: #1e1e1e;
-            border-color: #333;
-            overflow: hidden;
-            white-space: normal;
+        .chat-msg-row.received .chat-bubble::-webkit-scrollbar {
+            height: 4px;
         }
-        .chat-msg.terminal .chat-msg-body.live-xterm .xterm { height: auto; }
-        .chat-msg.terminal .chat-msg-body.live-xterm .xterm-viewport { overflow-y: hidden !important; }
-        .chat-msg.terminal .chat-msg-body.live-xterm .xterm-screen { width: 100% !important; }
+        .chat-msg-row.received .chat-bubble::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-msg-row.received .chat-bubble::-webkit-scrollbar-thumb {
+            background: #c8c8cc;
+            border-radius: 4px;
+        }
+        .chat-msg-row.received .chat-bubble::-webkit-scrollbar-thumb:hover {
+            background: #a8a8ad;
+        }
+        /* Rich content styles inside received bubbles */
+        .chat-msg-row.received .chat-bubble span[style*="font-weight"] {
+            letter-spacing: 0.01em;
+        }
+        .chat-msg-row.received .chat-bubble span[style*="text-decoration"] {
+            text-underline-offset: 2px;
+        }
+        /* Typing indicator */
+        .chat-typing-wrap {
+            padding: 4px 16px 0;
+            flex-shrink: 0;
+        }
+        .chat-typing {
+            display: none;
+            gap: 5px;
+            padding: 10px 16px;
+            background: #e9e9eb;
+            border-radius: 18px;
+            border-bottom-left-radius: 4px;
+            width: fit-content;
+            align-items: center;
+        }
+        .chat-typing.active { display: flex; }
+        .chat-typing-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #8e8e93;
+            animation: typingBounce 1.4s infinite ease-in-out;
+        }
+        .chat-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .chat-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-4px); opacity: 1; }
+        }
         /* Chat input */
         .chat-input-bar {
-            display: flex; align-items: flex-end; gap: 8px;
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
             padding: 8px 12px;
             padding-bottom: max(8px, env(safe-area-inset-bottom));
-            background: rgba(247,247,247,0.92);
-            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border-top: 0.5px solid #c6c6c8;
+            background: #f7f7f7;
+            border-top: 1px solid #ddd;
             flex-shrink: 0;
         }
         .chat-input-field {
-            flex: 1; background: #fff;
-            border: 1px solid #c6c6c8; border-radius: 18px;
-            color: #000; font-size: 15px;
+            flex: 1;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            color: #000;
+            font-size: 15px;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            padding: 7px 14px; outline: none; resize: none;
-            max-height: 100px; line-height: 1.35; overflow-y: auto;
+            padding: 8px 16px;
+            outline: none;
+            resize: none;
+            max-height: 100px;
+            line-height: 1.4;
+            overflow-y: auto;
         }
         .chat-input-field:focus { border-color: #007aff; }
         .chat-input-field::placeholder { color: #8e8e93; }
         .chat-input-send {
-            background: #007aff; border: none; border-radius: 50%;
-            color: #fff; width: 32px; height: 32px;
-            cursor: pointer; display: flex; align-items: center; justify-content: center;
-            flex-shrink: 0; transition: background 0.15s, transform 0.1s;
+            background: #007aff;
+            border: none;
+            border-radius: 50%;
+            color: #fff;
+            width: 34px; height: 34px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.15s;
         }
         .chat-input-send:hover { background: #0062cc; }
-        .chat-input-send:active { transform: scale(0.9); }
-        .chat-view.fullscreen { position:fixed; top:0;left:0;right:0;bottom:0; z-index:2000; }
+        .chat-input-send:active { transform: scale(0.92); }
+        .chat-expand-btn {
+            background: none;
+            border: none;
+            color: #007aff;
+            cursor: pointer;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+            border-radius: 6px;
+            transition: background 0.15s;
+        }
+        .chat-expand-btn:hover { background: #f0f0f0; }
+        /* Fullscreen chat mode */
+        .chat-view.fullscreen {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 2000;
+        }
         .chat-toggle-btn {
             background: none;
             border: 1px solid var(--border);
@@ -738,17 +842,28 @@
                     <div class="custom-scrollbar-thumb" id="customScrollThumb"></div>
                 </div>
             </div>
-            <!-- ChatGPT layout + Apple design chat view -->
+            <!-- iMessage chat view — inside term-main, above input bar -->
             <div class="chat-view" id="chatView">
                 <div class="chat-header">
                     <button class="chat-back-btn" id="chatBackBtn"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg></button>
-                    <div class="chat-header-title" id="chatHeaderTitle">Terminal</div>
-                    <button class="chat-header-expand" id="chatExpandBtn"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg></button>
+                    <div class="chat-avatar" id="chatAvatar">T</div>
+                    <div class="chat-contact-info">
+                        <div class="chat-contact-name" id="chatContactName">Terminal</div>
+                        <div class="chat-contact-status" id="chatContactStatus">Connected</div>
+                    </div>
+                    <button class="chat-expand-btn" id="chatExpandBtn" title="Fullscreen"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg></button>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-typing-wrap" id="chatTypingWrap">
+                    <div class="chat-typing" id="chatTyping">
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
+                    </div>
+                </div>
                 <div class="chat-input-bar">
-                    <textarea class="chat-input-field" id="chatInputField" placeholder="Message" rows="1"></textarea>
-                    <button class="chat-input-send" id="chatInputSend"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+                    <textarea class="chat-input-field" id="chatInputField" placeholder="iMessage" rows="1"></textarea>
+                    <button class="chat-input-send" id="chatInputSend"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
                 </div>
             </div>
             <div class="term-input-bar hidden" id="termInputBar">
@@ -794,7 +909,11 @@
         const chatInputSend = document.getElementById('chatInputSend');
         const chatBackBtn = document.getElementById('chatBackBtn');
         const chatExpandBtn = document.getElementById('chatExpandBtn');
-        const chatHeaderTitle = document.getElementById('chatHeaderTitle');
+        const chatAvatar = document.getElementById('chatAvatar');
+        const chatContactName = document.getElementById('chatContactName');
+        const chatContactStatus = document.getElementById('chatContactStatus');
+        const chatTyping = document.getElementById('chatTyping');
+        const chatTypingWrap = document.getElementById('chatTypingWrap');
         const configModalOverlay = document.getElementById('configModalOverlay');
         const configModalTitle = document.getElementById('configModalTitle');
         const configNameInput = document.getElementById('configNameInput');
@@ -1154,8 +1273,9 @@
             chatView.classList.remove('active');
             chatMessages.innerHTML = '';
             chatLastLine = 0;
+            lastChatTimeStr = '';
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
-            destroyLiveTerm();
+            chatTyping.classList.remove('active');
 
             termPlaceholder.style.display = 'none';
             termToolbar.style.display = '';
@@ -1268,21 +1388,6 @@
                     const msg = JSON.parse(event.data);
                     if (msg[0] === 'stdout') {
                         currentTerm.write(msg[1]);
-                        // Dual-write to live xterm in chat bubble
-                        if (liveActive && liveTerm) {
-                            if (liveSkipFirstPrompt) {
-                                // Skip data until first newline (the echoed command line)
-                                const nlIdx = msg[1].indexOf('\n');
-                                if (nlIdx >= 0) {
-                                    liveSkipFirstPrompt = false;
-                                    const after = msg[1].substring(nlIdx + 1);
-                                    if (after) liveTerm.write(after);
-                                }
-                                // else: still waiting for echo to complete, skip entirely
-                            } else {
-                                liveTerm.write(msg[1]);
-                            }
-                        }
                     } else if (msg[0] === 'disconnect') {
                         statusDot.classList.add('disconnected');
                     }
@@ -1423,27 +1528,36 @@
             }
         });
 
-        // ===== ChatGPT-style chat — static history + live xterm =====
+        // ===== iMessage Chat — deferred output (show after prompt) =====
         let chatLastLine = 0;
         let chatSnapshotTimer = null;
-        // Live xterm state
-        let liveTerm = null;
-        let liveFit = null;
-        let liveBody = null;
-        let liveActive = false;
-        let liveScrollTimer = null;
-        let liveSkipFirstPrompt = false;
+        let lastChatTimeStr = '';
+        let chatTypingTimeout = null;
+        // Deferred output state
+        let waitingForOutput = false;   // waiting for command output to finish
+        let pendingOutputStart = 0;     // buffer line where pending output starts
+        let chatSentFromInput = false;  // skip echo prompt
 
         function openChat() {
             chatMode = true;
             chatToggleBtn.classList.add('active');
-            chatHeaderTitle.textContent = currentDisplayName || 'Terminal';
+            chatContactName.textContent = currentDisplayName || 'Terminal';
+            chatAvatar.textContent = (currentDisplayName || 'T').charAt(0).toUpperCase();
+            chatContactStatus.textContent = 'Connected';
+            chatContactStatus.classList.remove('typing');
             chatMessages.innerHTML = '';
             chatLastLine = 0;
+            lastChatTimeStr = '';
+            waitingForOutput = false;
+            chatSentFromInput = false;
             chatView.classList.add('active');
+            // Load existing history as static bubbles
             snapshotBuffer();
             scrollChatToBottom();
-            chatSnapshotTimer = setInterval(snapshotBuffer, 500);
+            // Keep polling for new history (only when not waiting for output)
+            chatSnapshotTimer = setInterval(() => {
+                if (!waitingForOutput) snapshotBuffer();
+            }, 500);
             chatInputField.focus();
         }
 
@@ -1453,67 +1567,30 @@
             chatView.classList.remove('active');
             chatView.classList.remove('fullscreen');
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
-            destroyLiveTerm();
+            chatTyping.classList.remove('active');
+            waitingForOutput = false;
             if (fitAddon) setTimeout(() => fitAddon.fit(), 50);
-        }
-
-        function destroyLiveTerm() {
-            if (liveTerm) { try { liveTerm.dispose(); } catch(e) {} }
-            if (liveScrollTimer) { clearInterval(liveScrollTimer); liveScrollTimer = null; }
-            liveTerm = null; liveFit = null; liveBody = null;
-            liveActive = false;
-        }
-
-        function timeStr() {
-            const now = new Date();
-            return now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-        }
-
-        // Add a ChatGPT-style message block
-        function addChatMsg(type, content, isHtml) {
-            const msg = document.createElement('div');
-            msg.className = 'chat-msg ' + type;
-            const head = document.createElement('div');
-            head.className = 'chat-msg-head';
-            const icon = document.createElement('div');
-            icon.className = 'chat-msg-icon';
-            icon.textContent = type === 'user' ? '👤' : '🖥';
-            const sender = document.createElement('span');
-            sender.className = 'chat-msg-sender';
-            sender.textContent = type === 'user' ? 'You' : 'Terminal';
-            const time = document.createElement('span');
-            time.className = 'chat-msg-time';
-            time.textContent = timeStr();
-            head.appendChild(icon);
-            head.appendChild(sender);
-            head.appendChild(time);
-            msg.appendChild(head);
-            const body = document.createElement('div');
-            body.className = 'chat-msg-body';
-            if (isHtml) {
-                body.innerHTML = content;
-            } else {
-                body.textContent = content;
-            }
-            msg.appendChild(body);
-            chatMessages.appendChild(msg);
-            return body;
         }
 
         chatToggleBtn.addEventListener('click', () => { chatMode ? closeChat() : openChat(); });
         chatBackBtn.addEventListener('click', closeChat);
-        chatExpandBtn.addEventListener('click', () => { chatView.classList.toggle('fullscreen'); });
+        chatExpandBtn.addEventListener('click', () => {
+            chatView.classList.toggle('fullscreen');
+        });
 
-        // Chat input — creates user message + live xterm for output
+        // Chat input — show typing indicator, wait for output to complete
         function chatSendInput() {
             const text = chatInputField.value;
             if (!text || !currentWs || currentWs.readyState !== WebSocket.OPEN) return;
-            // Stop static snapshot while live term is active
+            // Stop the history snapshot timer (we handle output ourselves now)
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
-            // Create user message
-            addChatMsg('user', text, false);
-            // Create live xterm for terminal output
-            createLiveXterm();
+            addChatBubble('sent', text);
+            showTyping();
+            // Mark state: waiting for output, record where output will start
+            const buf = currentTerm.buffer.active;
+            pendingOutputStart = buf.baseY + buf.cursorY + 1;
+            waitingForOutput = true;
+            chatSentFromInput = true;
             scrollChatToBottom();
             // Send command
             currentWs.send(JSON.stringify(["stdin", text]));
@@ -1524,76 +1601,59 @@
             }, 50);
             chatInputField.value = '';
             chatAutoResize();
+            // Start polling for output completion
+            if (!chatSnapshotTimer) {
+                chatSnapshotTimer = setInterval(pollOutputComplete, 300);
+            }
         }
 
-        function createLiveXterm() {
-            destroyLiveTerm();
-            // Create terminal message block
-            const msg = document.createElement('div');
-            msg.className = 'chat-msg terminal';
-            const head = document.createElement('div');
-            head.className = 'chat-msg-head';
-            const icon = document.createElement('div');
-            icon.className = 'chat-msg-icon';
-            icon.textContent = '🖥';
-            const sender = document.createElement('span');
-            sender.className = 'chat-msg-sender';
-            sender.textContent = 'Terminal';
-            const time = document.createElement('span');
-            time.className = 'chat-msg-time';
-            time.textContent = timeStr();
-            head.appendChild(icon); head.appendChild(sender); head.appendChild(time);
-            msg.appendChild(head);
-            const body = document.createElement('div');
-            body.className = 'chat-msg-body live-xterm';
-            msg.appendChild(body);
-            chatMessages.appendChild(msg);
+        // Poll: check if a new prompt appeared → output is done
+        function pollOutputComplete() {
+            if (!currentTerm || !waitingForOutput) return;
+            const buf = currentTerm.buffer.active;
+            const totalLines = buf.baseY + buf.cursorY + 1;
 
-            liveSkipFirstPrompt = true;
+            // Scan from pendingOutputStart for a new prompt
+            for (let i = pendingOutputStart; i < totalLines; i++) {
+                const line = buf.getLine(i);
+                if (!line) continue;
+                const text = line.translateToString(true);
 
-            // Wait for layout, then create xterm
-            requestAnimationFrame(() => {
-                const w = body.clientWidth;
-                if (w < 50) return;
-                liveTerm = new Terminal({
-                    cursorBlink: true,
-                    fontSize: 13,
-                    fontFamily: "'SFMono-Regular', 'Fira Code', 'Consolas', 'Courier New', monospace",
-                    theme: {
-                        background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#d4d4d4',
-                        selectionBackground: '#264f78',
-                        black:'#1e1e1e', red:'#f44747', green:'#6a9955', yellow:'#d7ba7d',
-                        blue:'#569cd6', magenta:'#c586c0', cyan:'#4ec9b0', white:'#d4d4d4',
-                    },
-                    scrollback: 0, disableStdin: true, allowProposedApi: true,
-                    cols: Math.floor((w - 8) / 7.8), rows: 2,
-                });
-                liveFit = new FitAddon.FitAddon();
-                liveTerm.loadAddon(liveFit);
-                liveTerm.open(body);
-                liveBody = body;
-                liveActive = true;
-                setTimeout(() => {
-                    if (liveFit) try {
-                        const dims = liveFit.proposeDimensions();
-                        if (dims) liveTerm.resize(dims.cols, liveTerm.rows);
-                    } catch(e) {}
-                    scrollChatToBottom();
-                }, 30);
-                // Auto-grow rows + scroll
-                if (liveScrollTimer) clearInterval(liveScrollTimer);
-                liveScrollTimer = setInterval(() => {
-                    if (!liveActive || !liveTerm) return;
-                    const buf = liveTerm.buffer.active;
-                    const lines = buf.baseY + buf.cursorY + 1;
-                    const needed = Math.min(Math.max(lines, 2), 30);
-                    if (liveTerm.rows !== needed) {
-                        const dims = liveFit ? liveFit.proposeDimensions() : null;
-                        liveTerm.resize(dims ? dims.cols : liveTerm.cols, needed);
+                // Skip the echoed prompt (the command we just sent)
+                if (chatSentFromInput && /^❯/.test(text)) {
+                    chatSentFromInput = false;
+                    pendingOutputStart = i + 1;
+                    continue;
+                }
+
+                // New prompt found → output is complete
+                if (/^❯\s*$/.test(text) || /^❯ .+/.test(text)) {
+                    // Collect output from pendingOutputStart to this line
+                    const htmlParts = [];
+                    for (let j = pendingOutputStart; j < i; j++) {
+                        const { html } = bufferLineToHtml(buf, j);
+                        htmlParts.push(html);
+                    }
+                    const outputHtml = htmlParts.join('\n').replace(/(\n\s*)+$/, '');
+                    hideTyping();
+                    if (outputHtml.trim()) {
+                        addChatBubble('received', '', outputHtml);
                     }
                     scrollChatToBottom();
-                }, 250);
-            });
+
+                    // Update chatLastLine to current position
+                    chatLastLine = totalLines;
+                    waitingForOutput = false;
+
+                    // If the prompt has a command (user typed in real terminal), show it
+                    const newCmd = text.match(/^❯ (.+)/);
+                    if (newCmd) {
+                        // Another command was typed — will be picked up on next cycle
+                    }
+                    return;
+                }
+            }
+            // Still waiting — keep typing indicator
         }
         function chatAutoResize() {
             chatInputField.style.height = 'auto';
@@ -1609,10 +1669,10 @@
             }
         });
 
-        // ANSI 16-color palette — matched to dark terminal theme, adjusted for light bg
+        // ANSI 16-color palette — GitHub-style for light background (#f6f8fa)
         const ANSI16 = [
-            '#1f2328','#d32f2f','#2e7d32','#f9a825','#1565c0','#8250df','#00838f','#6e7781',
-            '#6e7781','#e53935','#43a047','#f57f17','#1e88e5','#ab47bc','#00acc1','#37474f',
+            '#1f2328','#cf222e','#116329','#9a6700','#0550ae','#8250df','#0e7490','#59636e',
+            '#6e7781','#d1242f','#1a7f37','#b35900','#0969da','#8250df','#0e7490','#1f2328',
         ];
         // 256-color: generate the 6x6x6 cube + grayscale
         const ANSI256 = [...ANSI16];
@@ -1644,12 +1704,7 @@
                     cell = line.getCell(x, cell);
                     if (!cell) break;
                     const ch = cell.getChars();
-                    // Skip only width-0 cells (2nd cell of wide chars like CJK)
-                    if (!ch) {
-                        const w = cell.getWidth ? cell.getWidth() : 1;
-                        if (w === 0) continue;
-                        // width > 0 but empty chars = space
-                    }
+                    if (!ch) continue;
                     let style = '';
                     try {
                         const fgMode = cell.getFgColorMode();
@@ -1704,15 +1759,12 @@
                         if (style) { html += '<span style="' + style + '">'; spanOpen = true; }
                         curStyle = style;
                     }
-                    const outCh = ch || ' ';
-                    if (outCh === '<') html += '&lt;';
-                    else if (outCh === '>') html += '&gt;';
-                    else if (outCh === '&') html += '&amp;';
-                    else html += outCh;
+                    if (ch === '<') html += '&lt;';
+                    else if (ch === '>') html += '&gt;';
+                    else if (ch === '&') html += '&amp;';
+                    else html += ch;
                 }
                 if (spanOpen) html += '</span>';
-                // Trim trailing spaces that extend to terminal width
-                html = html.replace(/( |&nbsp;)+(<\/span>)?$/, '$2');
                 return { text, html: html.length > 0 ? html : escText(text) };
             } catch(e) {
                 console.warn('bufferLineToHtml error:', e);
@@ -1750,13 +1802,14 @@
             return hex;
         }
 
-        // Snapshot xterm buffer → parse into user/terminal message blocks
+        // Snapshot xterm buffer → parse into sent/received bubbles with rich HTML
         function snapshotBuffer() {
             if (!currentTerm) return;
             const buf = currentTerm.buffer.active;
             const totalLines = buf.baseY + buf.cursorY + 1;
             if (totalLines <= chatLastLine) return;
 
+            // Read lines as both plain text (for classification) and HTML (for display)
             const lines = [];
             for (let i = chatLastLine; i < totalLines; i++) {
                 const { text, html } = bufferLineToHtml(buf, i);
@@ -1767,17 +1820,20 @@
 
             const blocks = [];
             let mode = 'received';
-            let sentTexts = [], recvHtmls = [];
+            let sentTexts = [], sentHtmls = [];
+            let recvTexts = [], recvHtmls = [];
 
             function flushSent() {
                 const t = sentTexts.join('\n').replace(/\s+$/, '');
-                if (t) blocks.push({ type: 'user', text: t });
-                sentTexts = [];
+                const h = sentHtmls.join('\n');
+                if (t) blocks.push({ type: 'sent', text: t, html: h });
+                sentTexts = []; sentHtmls = [];
             }
             function flushReceived() {
-                const h = recvHtmls.join('\n').replace(/(\n\s*)+$/, '');
-                if (h.trim()) blocks.push({ type: 'terminal', html: h });
-                recvHtmls = [];
+                const t = recvTexts.join('\n').replace(/\s+$/, '');
+                const h = recvHtmls.join('\n');
+                if (t) blocks.push({ type: 'received', text: t, html: h });
+                recvTexts = []; recvHtmls = [];
             }
 
             for (const { text, html } of lines) {
@@ -1786,33 +1842,85 @@
                     if (mode === 'sent') flushSent();
                     else flushReceived();
                     mode = 'sent';
+                    // Strip prompt from display
+                    const cmdStart = html.indexOf('❯');
+                    const cmdHtml = cmdStart >= 0 ? html.substring(cmdStart + 1).replace(/^\s+/, '') : escText(promptMatch[1]);
                     sentTexts.push(promptMatch[1]);
+                    sentHtmls.push(cmdHtml);
                     continue;
                 }
+
                 if (mode === 'sent') {
                     const isBlank = text.trim() === '';
-                    if (isBlank || /^\s/.test(text)) {
+                    const hasLeadingSpace = /^\s/.test(text) && !isBlank;
+                    if (isBlank || hasLeadingSpace) {
                         flushSent();
                         mode = 'received';
+                        recvTexts.push(text);
                         recvHtmls.push(html);
                     } else {
                         sentTexts.push(text);
+                        sentHtmls.push(html);
                     }
                 } else {
+                    recvTexts.push(text);
                     recvHtmls.push(html);
                 }
             }
             if (mode === 'sent') flushSent();
             else flushReceived();
 
-            for (const block of blocks) {
-                if (block.type === 'user') {
-                    addChatMsg('user', block.text, false);
-                } else {
-                    addChatMsg('terminal', block.html, true);
+            if (blocks.length === 0) return;
+
+            const hasReceived = blocks.some(b => b.type === 'received');
+            if (hasReceived) showTyping();
+
+            setTimeout(() => {
+                if (hasReceived) hideTyping();
+                for (const block of blocks) {
+                    if (block.text) addChatBubble(block.type, block.text, block.html);
                 }
+                scrollChatToBottom();
+            }, hasReceived ? 200 : 0);
+        }
+
+        function showTyping() {
+            chatTyping.classList.add('active');
+            chatContactStatus.textContent = 'typing...';
+            chatContactStatus.classList.add('typing');
+            scrollChatToBottom();
+        }
+        function hideTyping() {
+            chatTyping.classList.remove('active');
+            chatContactStatus.textContent = 'Connected';
+            chatContactStatus.classList.remove('typing');
+            if (chatTypingTimeout) { clearTimeout(chatTypingTimeout); chatTypingTimeout = null; }
+        }
+
+        function addChatBubble(type, text, html) {
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+            if (timeStr !== lastChatTimeStr) {
+                const sep = document.createElement('div');
+                sep.className = 'chat-time-sep';
+                sep.textContent = timeStr;
+                chatMessages.appendChild(sep);
+                lastChatTimeStr = timeStr;
             }
-            if (blocks.length > 0) scrollChatToBottom();
+            const row = document.createElement('div');
+            row.className = 'chat-msg-row ' + type;
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble';
+            // received: use rich HTML with colors; sent: plain text
+            if (type === 'received' && html) {
+                // Trim trailing empty lines from HTML for cleaner bubble
+                let cleanHtml = html.replace(/(\n\s*)+$/, '');
+                bubble.innerHTML = cleanHtml;
+            } else {
+                bubble.textContent = text;
+            }
+            row.appendChild(bubble);
+            chatMessages.appendChild(row);
         }
 
         function scrollChatToBottom() {
