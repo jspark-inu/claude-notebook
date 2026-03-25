@@ -234,6 +234,7 @@
         contextEl.style.left = x + 'px';
         contextEl.style.top = y + 'px';
         const actions = [];
+        actions.push({ label: '✏️ Rename', action: () => renameItem(item) });
         if (item.type === 'file') {
             actions.push({ label: '📥 Download', action: () => downloadFile(item.path) });
         }
@@ -286,6 +287,45 @@
             loadTree(); // refresh sidebar
         } catch (err) {
             alert('Delete failed: ' + err.message);
+        }
+    }
+
+    // === New Folder ===
+    document.getElementById('newFolderBtn').addEventListener('click', async () => {
+        const name = prompt('New folder name:');
+        if (!name || !name.trim()) return;
+        const folderPath = currentFinderPath ? currentFinderPath + '/' + name.trim() : name.trim();
+        try {
+            const res = await fetch(`${BASE}/api/mkdir`, mutFetchOpts({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-XSRFToken': XSRF },
+                body: JSON.stringify({ path: folderPath }),
+            }));
+            if (!res.ok) throw new Error(await res.text());
+            loadFinderGrid(currentFinderPath);
+            loadTree();
+        } catch (err) {
+            alert('Failed to create folder: ' + err.message);
+        }
+    });
+
+    // === Rename ===
+    async function renameItem(item) {
+        const newName = prompt('Rename to:', item.name);
+        if (!newName || !newName.trim() || newName.trim() === item.name) return;
+        const parentPath = item.path.includes('/') ? item.path.substring(0, item.path.lastIndexOf('/')) : '';
+        const newPath = parentPath ? parentPath + '/' + newName.trim() : newName.trim();
+        try {
+            const res = await fetch(`${BASE}/api/rename`, mutFetchOpts({
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'X-XSRFToken': XSRF },
+                body: JSON.stringify({ old_path: item.path, new_path: newPath }),
+            }));
+            if (!res.ok) throw new Error(await res.text());
+            loadFinderGrid(currentFinderPath);
+            loadTree();
+        } catch (err) {
+            alert('Rename failed: ' + err.message);
         }
     }
 

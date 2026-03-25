@@ -450,6 +450,49 @@ class WorkspaceSaveHandler(BaseHandler):
         self.json_response({"saved": file_path})
 
 
+class WorkspaceMkdirHandler(BaseHandler):
+    """Create a new folder in the workspace."""
+    @web.authenticated
+    def post(self):
+        body = json.loads(self.request.body)
+        dir_path = body.get("path")
+        if not dir_path:
+            raise web.HTTPError(400, "path required")
+        full_path = self.validate_path(dir_path)
+        if full_path.exists():
+            raise web.HTTPError(409, "Already exists: %s" % dir_path)
+        try:
+            full_path.mkdir(parents=True, exist_ok=False)
+        except OSError as e:
+            raise web.HTTPError(500, "mkdir error: %s" % str(e))
+        self.json_response({"created": dir_path})
+
+
+class WorkspaceRenameHandler(BaseHandler):
+    """Rename a file or folder in the workspace."""
+    @web.authenticated
+    def put(self):
+        body = json.loads(self.request.body)
+        old_path = body.get("old_path")
+        new_path = body.get("new_path")
+        if not old_path or not new_path:
+            raise web.HTTPError(400, "old_path and new_path required")
+        full_old = self.validate_path(old_path)
+        full_new = self.validate_path(new_path)
+        if not full_old.exists():
+            raise web.HTTPError(404, "Not found: %s" % old_path)
+        if full_new.exists():
+            raise web.HTTPError(409, "Already exists: %s" % new_path)
+        workspace = self.get_workspace()
+        if full_old == workspace or ".agent" in full_old.parts:
+            raise web.HTTPError(403, "Cannot rename this path")
+        try:
+            full_old.rename(full_new)
+        except OSError as e:
+            raise web.HTTPError(500, "Rename error: %s" % str(e))
+        self.json_response({"old": old_path, "new": new_path})
+
+
 class WorkspaceDownloadHandler(BaseHandler):
     """Download a file as attachment."""
     @web.authenticated
@@ -558,6 +601,8 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/api/upload"), WorkspaceUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/save"), WorkspaceSaveHandler),
         (ujoin(base_url, r"/claude-notebook/api/delete"), WorkspaceDeleteHandler),
+        (ujoin(base_url, r"/claude-notebook/api/mkdir"), WorkspaceMkdirHandler),
+        (ujoin(base_url, r"/claude-notebook/api/rename"), WorkspaceRenameHandler),
         (ujoin(base_url, r"/claude-notebook/api/download"), WorkspaceDownloadHandler),
         (ujoin(base_url, r"/claude-notebook/api/terminal-upload"), TerminalUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/terminal-names"), TerminalNamesHandler),
