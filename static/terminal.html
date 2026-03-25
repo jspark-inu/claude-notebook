@@ -187,11 +187,11 @@
         .term-toolbar {
             display: flex;
             align-items: center;
-            padding: 6px 12px;
+            padding: 8px 12px;
             background: #2d2d2d;
             border-bottom: 1px solid #404040;
             gap: 8px;
-            min-height: 36px;
+            min-height: 48px;
             flex-shrink: 0;
         }
         .term-toolbar-title {
@@ -463,7 +463,7 @@
             background: #258fb5;
         }
 
-        /* iMessage chat view */
+        /* Chat view — terminal-faithful rendering */
         .chat-view {
             display: none;
             flex: 1;
@@ -476,39 +476,42 @@
         .chat-messages {
             flex: 1;
             overflow-y: auto;
-            padding: 16px;
+            padding: 12px;
             display: flex;
             flex-direction: column;
-            gap: 6px;
-            background: #1e1e1e;
+            gap: 8px;
+            background: #1a1a1a;
             -webkit-overflow-scrolling: touch;
         }
         .chat-bubble {
-            max-width: 85%;
-            padding: 8px 14px;
-            border-radius: 18px;
+            max-width: 90%;
+            padding: 10px 14px;
+            border-radius: 16px;
             font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace;
             font-size: 13px;
-            line-height: 1.5;
-            white-space: pre-wrap;
-            word-break: break-word;
+            line-height: 1.45;
+            white-space: pre;
             overflow-x: auto;
+            word-break: normal;
         }
         .chat-bubble.stdin {
             align-self: flex-end;
-            background: #007aff;
-            color: #fff;
+            background: #0b57a0;
+            color: #e0e0e0;
             border-bottom-right-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
         .chat-bubble.stdout {
             align-self: flex-start;
-            background: #3a3a3c;
+            background: #2a2a2c;
             color: #d4d4d4;
             border-bottom-left-radius: 4px;
+            max-width: 100%;
         }
         .chat-bubble .chat-time {
-            font-size: 10px;
-            opacity: 0.5;
+            font-size: 9px;
+            color: #666;
             margin-top: 4px;
             display: block;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -519,7 +522,7 @@
             color: #ccc;
             font-size: 14px;
             width: 28px;
-            height: 24px;
+            height: 28px;
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.15s;
@@ -542,16 +545,16 @@
         .mobile-toggle {
             display: none;
             position: fixed;
-            top: 5px;
+            top: 6px;
             left: 6px;
             z-index: 1001;
-            width: 32px;
-            height: 28px;
-            background: #3a3a3a;
+            width: 36px;
+            height: 36px;
+            background: rgba(45,45,45,0.9);
             border: 1px solid #555;
-            border-radius: 6px;
+            border-radius: 8px;
             color: #ccc;
-            font-size: 15px;
+            font-size: 18px;
             cursor: pointer;
             align-items: center;
             justify-content: center;
@@ -589,11 +592,7 @@
                 padding-left: 52px;
             }
             .term-toolbar {
-                padding-left: 44px;
-            }
-            .term-toolbar-btn svg {
-                width: 14px;
-                height: 14px;
+                padding-left: 48px;
             }
             .term-input-bar {
                 padding-bottom: max(8px, env(safe-area-inset-bottom));
@@ -715,7 +714,6 @@
         let fitAddon = null;
         let terminalData = {};  // name -> {display_name, last_activity}
         let chatMode = false;
-        let chatLog = [];  // {type: 'stdin'|'stdout', text, time}
 
         // Server-synced terminal config (slot-based, shared across devices)
         // Format: {slot: {display_name, command}}
@@ -1060,11 +1058,8 @@
             chatToggleBtn.classList.remove('active');
             chatView.classList.remove('active');
             chatMessages.innerHTML = '';
-            chatLog = [];
-            stdoutBuffer = '';
-            stdinBuffer = '';
-            if (stdoutTimer) { clearTimeout(stdoutTimer); stdoutTimer = null; }
-            if (stdinTimer) { clearTimeout(stdinTimer); stdinTimer = null; }
+            chatLastLine = 0;
+            if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
 
             termPlaceholder.style.display = 'none';
             termToolbar.style.display = '';
@@ -1203,7 +1198,6 @@
                     const msg = JSON.parse(event.data);
                     if (msg[0] === 'stdout') {
                         currentTerm.write(msg[1]);
-                        bufferStdout(msg[1]);
                     } else if (msg[0] === 'disconnect') {
                         statusDot.classList.add('disconnected');
                     }
@@ -1218,11 +1212,10 @@
                 statusDot.classList.add('disconnected');
             };
 
-            // Send input character by character + capture for chat
+            // Send input character by character
             currentTerm.onData((data) => {
                 if (currentWs && currentWs.readyState === WebSocket.OPEN) {
                     currentWs.send(JSON.stringify(["stdin", data]));
-                    bufferStdin(data);
                 }
             });
 
@@ -1300,8 +1293,6 @@
         function sendInput() {
             const text = termInputField.value;
             if (!text || !currentWs || currentWs.readyState !== WebSocket.OPEN) return;
-            // Add to chat view
-            addChatBubble('stdin', text);
             // Send text first, then \r after a short delay
             // This works with raw-mode programs (Claude CLI, vim, etc.)
             currentWs.send(JSON.stringify(["stdin", text]));
@@ -1340,7 +1331,11 @@
             }
         });
 
-        // === Chat (iMessage) toggle ===
+        // === Chat view: xterm buffer snapshot approach ===
+        // Reads directly from xterm's buffer to preserve exactly what the terminal shows.
+        let chatLastLine = 0;  // tracks how far we've read
+        let chatSnapshotTimer = null;
+
         chatToggleBtn.addEventListener('click', () => {
             chatMode = !chatMode;
             chatToggleBtn.classList.toggle('active', chatMode);
@@ -1348,16 +1343,52 @@
             if (chatMode) {
                 termBody.style.display = 'none';
                 chatView.classList.add('active');
+                // Take initial snapshot of everything in the buffer
+                chatMessages.innerHTML = '';
+                chatLastLine = 0;
+                snapshotBuffer();
                 scrollChatToBottom();
+                // Poll for new content every 500ms
+                chatSnapshotTimer = setInterval(() => {
+                    snapshotBuffer();
+                }, 500);
             } else {
                 termBody.style.display = '';
                 chatView.classList.remove('active');
+                if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
                 if (fitAddon) setTimeout(() => fitAddon.fit(), 50);
             }
         });
 
+        // Read lines from xterm buffer and add as chat bubbles
+        function snapshotBuffer() {
+            if (!currentTerm) return;
+            const buf = currentTerm.buffer.active;
+            const totalLines = buf.baseY + buf.cursorY + 1;
+            if (totalLines <= chatLastLine) return;
+
+            // Gather new lines
+            const newLines = [];
+            for (let i = chatLastLine; i < totalLines; i++) {
+                const line = buf.getLine(i);
+                if (!line) continue;
+                newLines.push(line.translateToString(true));
+            }
+            chatLastLine = totalLines;
+
+            if (newLines.length === 0) return;
+
+            // Group lines into a single bubble (stdout)
+            const text = newLines.join('\n');
+            // Trim only trailing whitespace, preserve leading structure
+            const trimmed = text.replace(/\s+$/, '');
+            if (!trimmed) return;
+
+            addChatBubble('stdout', trimmed);
+            scrollChatToBottom();
+        }
+
         function addChatBubble(type, text) {
-            if (!text || !text.trim()) return;
             const bubble = document.createElement('div');
             bubble.className = 'chat-bubble ' + type;
             bubble.textContent = text;
@@ -1367,147 +1398,12 @@
             timeEl.textContent = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
             bubble.appendChild(timeEl);
             chatMessages.appendChild(bubble);
-            chatLog.push({type, text, time: Date.now()});
-            scrollChatToBottom();
         }
 
         function scrollChatToBottom() {
             requestAnimationFrame(() => {
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             });
-        }
-
-        // === Stdin buffering for chat (xterm direct typing) ===
-        let stdinBuffer = '';
-        let stdinTimer = null;
-        function bufferStdin(data) {
-            // Enter/Return → flush current buffer as a chat bubble
-            if (data === '\r' || data === '\n') {
-                if (stdinBuffer.trim()) {
-                    addChatBubble('stdin', stdinBuffer);
-                }
-                stdinBuffer = '';
-                if (stdinTimer) { clearTimeout(stdinTimer); stdinTimer = null; }
-                return;
-            }
-            // Ctrl+C → flush as "^C"
-            if (data === '\x03') {
-                if (stdinBuffer.trim()) addChatBubble('stdin', stdinBuffer);
-                stdinBuffer = '';
-                if (stdinTimer) { clearTimeout(stdinTimer); stdinTimer = null; }
-                addChatBubble('stdin', '^C');
-                return;
-            }
-            // Backspace
-            if (data === '\x7f' || data === '\b') {
-                stdinBuffer = stdinBuffer.slice(0, -1);
-                return;
-            }
-            // Tab → ignore for chat
-            if (data === '\t') return;
-            // Other control chars → ignore
-            if (data.length === 1 && data.charCodeAt(0) < 32) return;
-            stdinBuffer += data;
-        }
-
-        // === Terminal output → chat text conversion ===
-        // Strips ANSI escape codes and emulates carriage return line overwriting
-        function cleanTerminalOutput(raw) {
-            // 1. Strip all ANSI / terminal escape sequences
-            let text = raw
-                // CSI sequences: ESC [ (params) (intermediate) final
-                .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
-                // OSC sequences: ESC ] ... BEL or ESC ] ... ST(ESC\)
-                .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-                // DCS sequences: ESC P ... ST
-                .replace(/\x1bP[^\x1b]*\x1b\\/g, '')
-                // ESC ( / ESC ) charset selects
-                .replace(/\x1b[()][0-9A-B]/g, '')
-                // Other 2-byte ESC sequences (ESC =, ESC >, ESC M, etc.)
-                .replace(/\x1b[^[\]()P]/g, '')
-                // Stray ESC
-                .replace(/\x1b/g, '')
-                // BEL
-                .replace(/\x07/g, '')
-                // Backspace: remove char before it
-                .replace(/[^\x08]\x08/g, '')
-                .replace(/\x08/g, '');
-
-            // 2. Emulate carriage return (\r) — overwrites from start of line
-            //    Split by \n first, then handle \r within each line
-            const lines = text.split('\n');
-            const processed = [];
-            for (let line of lines) {
-                if (line.includes('\r')) {
-                    // Each \r resets write position to start of line
-                    const parts = line.split('\r');
-                    let result = '';
-                    for (const part of parts) {
-                        if (part === '') continue;
-                        // Overwrite: part overwrites from position 0
-                        const chars = result.split('');
-                        for (let i = 0; i < part.length; i++) {
-                            chars[i] = part[i];
-                        }
-                        result = chars.join('');
-                    }
-                    processed.push(result);
-                } else {
-                    processed.push(line);
-                }
-            }
-
-            // 3. Collapse runs of 3+ empty lines into 2
-            let result = '';
-            let emptyCount = 0;
-            for (const line of processed) {
-                if (line.trim() === '') {
-                    emptyCount++;
-                    if (emptyCount <= 2) result += '\n';
-                } else {
-                    emptyCount = 0;
-                    if (result.length > 0 && !result.endsWith('\n')) result += '\n';
-                    result += line;
-                }
-            }
-
-            return result.trim();
-        }
-
-        // Batch stdout for chat: collect output then split into readable bubbles
-        let stdoutBuffer = '';
-        let stdoutTimer = null;
-        const MAX_BUBBLE_LINES = 40;  // split long outputs
-
-        function bufferStdout(data) {
-            stdoutBuffer += data;
-            if (stdoutTimer) clearTimeout(stdoutTimer);
-            stdoutTimer = setTimeout(() => {
-                flushStdoutBuffer();
-            }, 500);
-        }
-
-        function flushStdoutBuffer() {
-            if (!stdoutBuffer.trim()) {
-                stdoutBuffer = '';
-                stdoutTimer = null;
-                return;
-            }
-            const clean = cleanTerminalOutput(stdoutBuffer);
-            stdoutBuffer = '';
-            stdoutTimer = null;
-            if (!clean) return;
-
-            // Split very long outputs into multiple bubbles
-            const lines = clean.split('\n');
-            if (lines.length <= MAX_BUBBLE_LINES) {
-                addChatBubble('stdout', clean);
-            } else {
-                for (let i = 0; i < lines.length; i += MAX_BUBBLE_LINES) {
-                    const chunk = lines.slice(i, i + MAX_BUBBLE_LINES).join('\n').trim();
-                    if (chunk) addChatBubble('stdout', chunk);
-                }
-            }
         }
 
         // === Custom scrollbar ===
