@@ -638,6 +638,25 @@
         }
         .chat-input-send:hover { background: #0062cc; }
         .chat-input-send:active { transform: scale(0.92); }
+        .chat-expand-btn {
+            background: none;
+            border: none;
+            color: #007aff;
+            cursor: pointer;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+            border-radius: 6px;
+            transition: background 0.15s;
+        }
+        .chat-expand-btn:hover { background: #f0f0f0; }
+        /* Fullscreen chat mode */
+        .chat-view.fullscreen {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 2000;
+        }
         .chat-toggle-btn {
             background: none;
             border: 1px solid var(--border);
@@ -794,6 +813,7 @@
                         <div class="chat-contact-name" id="chatContactName">Terminal</div>
                         <div class="chat-contact-status" id="chatContactStatus">Connected</div>
                     </div>
+                    <button class="chat-expand-btn" id="chatExpandBtn" title="Fullscreen"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg></button>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="chat-typing-wrap" id="chatTypingWrap">
@@ -850,6 +870,7 @@
         const chatInputField = document.getElementById('chatInputField');
         const chatInputSend = document.getElementById('chatInputSend');
         const chatBackBtn = document.getElementById('chatBackBtn');
+        const chatExpandBtn = document.getElementById('chatExpandBtn');
         const chatAvatar = document.getElementById('chatAvatar');
         const chatContactName = document.getElementById('chatContactName');
         const chatContactStatus = document.getElementById('chatContactStatus');
@@ -1496,6 +1517,7 @@
             chatMode = false;
             chatToggleBtn.classList.remove('active');
             chatView.classList.remove('active');
+            chatView.classList.remove('fullscreen');
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
             chatTyping.classList.remove('active');
             if (fitAddon) setTimeout(() => fitAddon.fit(), 50);
@@ -1503,6 +1525,9 @@
 
         chatToggleBtn.addEventListener('click', () => { chatMode ? closeChat() : openChat(); });
         chatBackBtn.addEventListener('click', closeChat);
+        chatExpandBtn.addEventListener('click', () => {
+            chatView.classList.toggle('fullscreen');
+        });
 
         // Chat input
         function chatSendInput() {
@@ -1533,25 +1558,11 @@
             }
         });
 
-        // Detect prompt line: look for common prompt endings at or near line start.
-        // Returns the command text (after prompt) or null if not a prompt.
-        // Prompt markers: ❯ ❮ ➜ ➤ ▶ › and also "$ " or "% " at end of a short prefix.
+        // Detect user input: line must START with ❯ (possibly after whitespace).
+        // Returns the command text after ❯, or null.
         function extractCommand(line) {
-            // Match: (anything)(prompt char)(space)(command)
-            // Prompt char must appear within first 40 chars to avoid matching mid-output
-            const prefix = line.substring(0, 40);
-            // Unicode prompt arrows (starship, powerlevel10k, oh-my-zsh, etc.)
-            for (const ch of ['❯', '❮', '➜', '➤', '▶', '›']) {
-                const idx = prefix.indexOf(ch);
-                if (idx !== -1) {
-                    const after = line.substring(idx + ch.length).replace(/^\s+/, '');
-                    return after || null;
-                }
-            }
-            // Traditional prompts: line starts with optional prefix then "$ " or "% "
-            // e.g. "user@host:~$ ls" or "(venv) % pip" — $ or % must be followed by space
-            const m = line.match(/^[^\s$%]{0,30}[\$%]\s+(.*)/);
-            if (m && m[1].trim()) return m[1];
+            const m = line.match(/^\s*❯\s?(.*)/);
+            if (m) return m[1] || null;
             return null;
         }
 
