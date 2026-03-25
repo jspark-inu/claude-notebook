@@ -465,13 +465,13 @@
             background: #258fb5;
         }
 
-        /* ===== iMessage Chat — position:fixed fullscreen overlay ===== */
+        /* ===== iMessage Chat — light mode, position:fixed fullscreen ===== */
         .chat-view {
             display: none;
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
             flex-direction: column;
-            background: #000;
+            background: #fff;
             z-index: 2000;
         }
         .chat-view.active {
@@ -482,15 +482,15 @@
             align-items: center;
             gap: 10px;
             padding: 10px 16px;
-            background: #1c1c1e;
-            border-bottom: 1px solid #2c2c2e;
+            background: #f7f7f7;
+            border-bottom: 1px solid #ddd;
             height: 52px;
             flex-shrink: 0;
         }
         .chat-back-btn {
             background: none;
             border: none;
-            color: #0b93f6;
+            color: #007aff;
             cursor: pointer;
             padding: 4px;
             display: flex;
@@ -501,7 +501,7 @@
             width: 34px;
             height: 34px;
             border-radius: 50%;
-            background: #636366;
+            background: #c7c7cc;
             color: #fff;
             display: flex;
             align-items: center;
@@ -514,7 +514,7 @@
         .chat-contact-name {
             font-size: 15px;
             font-weight: 600;
-            color: #fff;
+            color: #000;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -523,7 +523,7 @@
             font-size: 11px;
             color: #8e8e93;
         }
-        .chat-contact-status.typing { color: #0b93f6; }
+        .chat-contact-status.typing { color: #007aff; }
         .chat-messages {
             flex: 1;
             overflow-y: auto;
@@ -533,6 +533,7 @@
             display: flex;
             flex-direction: column;
             gap: 2px;
+            background: #fff;
         }
         .chat-time-sep {
             text-align: center;
@@ -557,13 +558,13 @@
             word-break: break-word;
         }
         .chat-msg-row.sent .chat-bubble {
-            background: #0b93f6;
+            background: #007aff;
             color: #fff;
             border-bottom-right-radius: 4px;
         }
         .chat-msg-row.received .chat-bubble {
-            background: #2c2c2e;
-            color: #fff;
+            background: #e9e9eb;
+            color: #000;
             border-bottom-left-radius: 4px;
         }
         /* Typing indicator */
@@ -575,7 +576,7 @@
             display: none;
             gap: 5px;
             padding: 10px 16px;
-            background: #2c2c2e;
+            background: #e9e9eb;
             border-radius: 18px;
             border-bottom-left-radius: 4px;
             width: fit-content;
@@ -601,16 +602,16 @@
             gap: 8px;
             padding: 8px 12px;
             padding-bottom: max(8px, env(safe-area-inset-bottom));
-            background: #1c1c1e;
-            border-top: 1px solid #2c2c2e;
+            background: #f7f7f7;
+            border-top: 1px solid #ddd;
             flex-shrink: 0;
         }
         .chat-input-field {
             flex: 1;
-            background: #2c2c2e;
-            border: 1px solid #3a3a3c;
+            background: #fff;
+            border: 1px solid #ddd;
             border-radius: 20px;
-            color: #fff;
+            color: #000;
             font-size: 15px;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             padding: 8px 16px;
@@ -620,10 +621,10 @@
             line-height: 1.4;
             overflow-y: auto;
         }
-        .chat-input-field:focus { border-color: #0b93f6; }
-        .chat-input-field::placeholder { color: #636366; }
+        .chat-input-field:focus { border-color: #007aff; }
+        .chat-input-field::placeholder { color: #8e8e93; }
         .chat-input-send {
-            background: #0b93f6;
+            background: #007aff;
             border: none;
             border-radius: 50%;
             color: #fff;
@@ -635,7 +636,7 @@
             flex-shrink: 0;
             transition: background 0.15s;
         }
-        .chat-input-send:hover { background: #0a84e6; }
+        .chat-input-send:hover { background: #0062cc; }
         .chat-input-send:active { transform: scale(0.92); }
         .chat-toggle-btn {
             background: none;
@@ -1534,7 +1535,11 @@
             }
         });
 
-        // Snapshot xterm buffer → received bubbles
+        // Detect if a line is a user prompt (user input)
+        // Matches: ❯, $, %, >, >>>, (venv)$, user@host:~$, etc.
+        const PROMPT_RE = /^(?:.*?[❯\$%>#])\s+\S/;
+
+        // Snapshot xterm buffer → parse into sent/received bubbles
         function snapshotBuffer() {
             if (!currentTerm) return;
             const buf = currentTerm.buffer.active;
@@ -1548,14 +1553,40 @@
             }
             chatLastLine = totalLines;
             if (newLines.length === 0) return;
-            const text = newLines.join('\n').replace(/\s+$/, '');
-            if (!text) return;
-            showTyping();
+
+            // Group consecutive lines into sent/received blocks
+            const blocks = [];
+            let currentBlock = null;
+            for (const line of newLines) {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    // Empty line continues current block
+                    if (currentBlock) currentBlock.lines.push(line);
+                    continue;
+                }
+                const isSent = PROMPT_RE.test(line);
+                if (!currentBlock || currentBlock.type !== (isSent ? 'sent' : 'received')) {
+                    currentBlock = { type: isSent ? 'sent' : 'received', lines: [line] };
+                    blocks.push(currentBlock);
+                } else {
+                    currentBlock.lines.push(line);
+                }
+            }
+
+            if (blocks.length === 0) return;
+
+            // Check if any received content → show typing then reveal
+            const hasReceived = blocks.some(b => b.type === 'received');
+            if (hasReceived) showTyping();
+
             setTimeout(() => {
-                hideTyping();
-                addChatBubble('received', text);
+                if (hasReceived) hideTyping();
+                for (const block of blocks) {
+                    const text = block.lines.join('\n').replace(/\s+$/, '');
+                    if (text) addChatBubble(block.type, text);
+                }
                 scrollChatToBottom();
-            }, 200);
+            }, hasReceived ? 200 : 0);
         }
 
         function showTyping() {
