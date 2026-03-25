@@ -605,10 +605,10 @@
         .chat-msg-row.received .chat-bubble span[style*="text-decoration"] {
             text-underline-offset: 2px;
         }
-        /* Typing indicator — inside chat-messages, sticks to bottom */
+        /* Typing indicator */
         .chat-typing-wrap {
-            padding: 4px 16px 8px;
-            margin-top: auto;
+            padding: 4px 16px 0;
+            flex-shrink: 0;
         }
         .chat-typing {
             display: none;
@@ -853,13 +853,12 @@
                     </div>
                     <button class="chat-expand-btn" id="chatExpandBtn" title="Fullscreen"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg></button>
                 </div>
-                <div class="chat-messages" id="chatMessages">
-                    <div class="chat-typing-wrap" id="chatTypingWrap">
-                        <div class="chat-typing" id="chatTyping">
-                            <div class="chat-typing-dot"></div>
-                            <div class="chat-typing-dot"></div>
-                            <div class="chat-typing-dot"></div>
-                        </div>
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-typing-wrap" id="chatTypingWrap">
+                    <div class="chat-typing" id="chatTyping">
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
+                        <div class="chat-typing-dot"></div>
                     </div>
                 </div>
                 <div class="chat-input-bar">
@@ -1608,61 +1607,60 @@
             }
         }
 
-        // Poll: check if a new prompt appeared → output is done
+        // Poll: check if a new bare prompt (❯) appeared at end of buffer → output is done
         function pollOutputComplete() {
             if (!currentTerm || !waitingForOutput) return;
             const buf = currentTerm.buffer.active;
             const totalLines = buf.baseY + buf.cursorY + 1;
+            if (totalLines <= pendingOutputStart) return;
 
-            // Look backwards from the end for a bare prompt (❯ with no command after it)
-            // This is more reliable than scanning forward
+            // Check the last non-empty line — is it a bare prompt?
+            let lastNonEmpty = '';
+            let lastNonEmptyIdx = -1;
             for (let i = totalLines - 1; i >= pendingOutputStart; i--) {
                 const line = buf.getLine(i);
                 if (!line) continue;
                 const text = line.translateToString(true);
-                if (!text.trim()) continue; // skip blank lines
-
-                // Found a bare prompt → output is done
-                if (/^❯\s*$/.test(text)) {
-                    // Find where the echoed command line is (to skip it)
-                    let outputFrom = pendingOutputStart;
-                    for (let j = pendingOutputStart; j < i; j++) {
-                        const l = buf.getLine(j);
-                        if (!l) continue;
-                        const t = l.translateToString(true);
-                        if (chatSentFromInput && /^❯/.test(t)) {
-                            chatSentFromInput = false;
-                            outputFrom = j + 1;
-                            break;
-                        }
-                    }
-                    // Collect output lines
-                    const htmlParts = [];
-                    for (let j = outputFrom; j < i; j++) {
-                        const { html } = bufferLineToHtml(buf, j);
-                        htmlParts.push(html);
-                    }
-                    const outputHtml = htmlParts.join('\n').replace(/(\n\s*)+$/, '');
-                    hideTyping();
-                    if (outputHtml.trim()) {
-                        addChatBubble('received', '', outputHtml);
-                    }
-                    scrollChatToBottom();
-                    chatLastLine = totalLines;
-                    waitingForOutput = false;
-                    chatSentFromInput = false;
-
-                    // Resume normal history polling
-                    if (chatSnapshotTimer) clearInterval(chatSnapshotTimer);
-                    chatSnapshotTimer = setInterval(() => {
-                        if (!waitingForOutput) snapshotBuffer();
-                    }, 500);
-                    return;
+                if (text.trim()) {
+                    lastNonEmpty = text;
+                    lastNonEmptyIdx = i;
+                    break;
                 }
-
-                // Last non-blank line is not a bare prompt → still outputting
-                break;
             }
+
+            // Not a bare prompt yet → still outputting
+            if (lastNonEmptyIdx < 0 || !/^❯\s*$/.test(lastNonEmpty)) return;
+
+            // Output is done! Collect output lines (skip echo line)
+            let outputFrom = pendingOutputStart;
+            // Skip first line if it's the echoed command
+            if (chatSentFromInput) {
+                const firstLine = buf.getLine(pendingOutputStart);
+                if (firstLine && /^❯/.test(firstLine.translateToString(true))) {
+                    outputFrom = pendingOutputStart + 1;
+                }
+                chatSentFromInput = false;
+            }
+
+            const htmlParts = [];
+            for (let j = outputFrom; j < lastNonEmptyIdx; j++) {
+                const { html } = bufferLineToHtml(buf, j);
+                htmlParts.push(html);
+            }
+            const outputHtml = htmlParts.join('\n').replace(/(\n\s*)+$/, '');
+            hideTyping();
+            if (outputHtml.trim()) {
+                addChatBubble('received', '', outputHtml);
+            }
+            scrollChatToBottom();
+            chatLastLine = totalLines;
+            waitingForOutput = false;
+
+            // Resume normal history polling
+            if (chatSnapshotTimer) clearInterval(chatSnapshotTimer);
+            chatSnapshotTimer = setInterval(() => {
+                if (!waitingForOutput) snapshotBuffer();
+            }, 500);
         }
         function chatAutoResize() {
             chatInputField.style.height = 'auto';
