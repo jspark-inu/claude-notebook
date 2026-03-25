@@ -236,6 +236,11 @@ html, body {
     color: #fff;
     border-color: var(--text);
 }
+.term-toolbar-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
 .term-toolbar-btn svg {
     width: 16px;
     height: 16px;

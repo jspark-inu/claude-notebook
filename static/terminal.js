@@ -176,64 +176,47 @@ function closeSidebar() {
     }
 }
 
-// Long-press to show selectable text overlay (mobile terminal copy)
+// Select mode — toggle selectable text overlay for copy
 const termSelectOverlay = document.getElementById('termSelectOverlay');
 const termSelectText = document.getElementById('termSelectText');
-(function setupLongPressSelect() {
-    let pressTimer = null;
-    const LONG_PRESS_MS = 500;
+const selectToggleBtn = document.getElementById('selectToggleBtn');
+let selectMode = false;
 
-    function getBufferText() {
-        if (!currentTerm) return '';
-        const buf = currentTerm.buffer.active;
-        const lines = [];
-        for (let i = 0; i <= buf.baseY + buf.cursorY; i++) {
-            const line = buf.getLine(i);
-            if (line) lines.push(line.translateToString(true));
-        }
-        return lines.join('\n').replace(/\s+$/, '');
+function getBufferText() {
+    if (!currentTerm) return '';
+    const buf = currentTerm.buffer.active;
+    const lines = [];
+    for (let i = 0; i <= buf.baseY + buf.cursorY; i++) {
+        const line = buf.getLine(i);
+        if (line) lines.push(line.translateToString(true));
     }
+    return lines.join('\n').replace(/\s+$/, '');
+}
 
-    function showOverlay() {
-        const text = getBufferText();
-        if (!text) return;
-        termSelectText.textContent = text;
-        termSelectOverlay.classList.add('active');
-        // Scroll to bottom
-        termSelectOverlay.scrollTop = termSelectOverlay.scrollHeight;
-    }
+function showSelectOverlay() {
+    const text = getBufferText();
+    if (!text) return;
+    selectMode = true;
+    selectToggleBtn.classList.add('active');
+    termSelectText.textContent = text;
+    termSelectOverlay.classList.add('active');
+    termSelectOverlay.scrollTop = termSelectOverlay.scrollHeight;
+}
 
-    function hideOverlay() {
-        termSelectOverlay.classList.remove('active');
-        termSelectText.textContent = '';
-    }
+function hideSelectOverlay() {
+    selectMode = false;
+    selectToggleBtn.classList.remove('active');
+    termSelectOverlay.classList.remove('active');
+    termSelectText.textContent = '';
+}
 
-    terminalContainer.addEventListener('touchstart', (e) => {
-        pressTimer = setTimeout(showOverlay, LONG_PRESS_MS);
-    }, { passive: true });
+selectToggleBtn.addEventListener('click', () => {
+    selectMode ? hideSelectOverlay() : showSelectOverlay();
+});
 
-    terminalContainer.addEventListener('touchend', () => {
-        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-    });
-    terminalContainer.addEventListener('touchmove', () => {
-        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-    });
-
-    // Close overlay when tapping outside the text, or pressing back
-    termSelectOverlay.addEventListener('click', (e) => {
-        if (e.target === termSelectOverlay) hideOverlay();
-    });
-
-    // Also close on toolbar button clicks or terminal switch
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && termSelectOverlay.classList.contains('active')) {
-            hideOverlay();
-        }
-    });
-
-    // Expose for external use
-    window._hideTermSelectOverlay = hideOverlay;
-})();
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && selectMode) hideSelectOverlay();
+});
 
 // Send multiline commands with 3s interval via WebSocket
 function sendMultilineCommand(ws, commandText) {
@@ -619,7 +602,7 @@ function setupResizeObserver() {
 // Connect to terminal — orchestrator
 function connectTerminal(name) {
     disconnect();
-    if (window._hideTermSelectOverlay) window._hideTermSelectOverlay();
+    if (selectMode) hideSelectOverlay();
     currentName = name;
     currentDisplayName = getDisplayName(terminalData[name] || {name: name});
 
