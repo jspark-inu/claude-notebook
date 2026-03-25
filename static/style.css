@@ -651,20 +651,25 @@ html, body {
     overflow: auto;
 }
 .csv-table {
-    width: max-content;
     min-width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 13px;
     table-layout: fixed;
 }
 .csv-table th, .csv-table td {
     border: 1px solid var(--border);
+    border-left: none;
     padding: 6px 10px;
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 0;
     position: relative;
+}
+.csv-table th:first-child, .csv-table td:first-child {
+    border-left: 1px solid var(--border);
 }
 .csv-table thead th {
     background: var(--sidebar-bg);
@@ -696,8 +701,8 @@ html, body {
     padding: 2px 4px;
     background: #fff !important;
     position: sticky;
-    top: 31px;
-    z-index: 1;
+    top: 33px;
+    z-index: 2;
 }
 .csv-filter {
     width: 100%;
@@ -788,9 +793,16 @@ html, body {
     overflow: auto;
 }
 .csv-edit-table .csv-cell {
-    min-width: 60px;
+    min-width: 40px;
     outline: none;
     cursor: text;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.csv-edit-table .csv-cell:focus {
+    white-space: pre-wrap;
+    overflow: visible;
 }
 .csv-edit-table .csv-cell:focus {
     background: #fff;
@@ -799,6 +811,9 @@ html, body {
 .csv-header-cell {
     font-weight: 600;
     background: var(--sidebar-bg);
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 .csv-row-actions, .csv-col-actions {
     border: none !important;
@@ -806,6 +821,13 @@ html, body {
     text-align: center;
     width: 24px;
     min-width: 24px;
+    overflow: visible;
+}
+tr:first-child .csv-row-actions {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--sidebar-bg);
 }
 .csv-col-actions-row td {
     border: none !important;
