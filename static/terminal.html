@@ -605,10 +605,10 @@
         .chat-msg-row.received .chat-bubble span[style*="text-decoration"] {
             text-underline-offset: 2px;
         }
-        /* Typing indicator */
+        /* Typing indicator — inside chat-messages, sticks to bottom */
         .chat-typing-wrap {
-            padding: 4px 16px 0;
-            flex-shrink: 0;
+            padding: 4px 16px 8px;
+            margin-top: auto;
         }
         .chat-typing {
             display: none;
@@ -853,12 +853,13 @@
                     </div>
                     <button class="chat-expand-btn" id="chatExpandBtn" title="Fullscreen"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg></button>
                 </div>
-                <div class="chat-messages" id="chatMessages"></div>
-                <div class="chat-typing-wrap" id="chatTypingWrap">
-                    <div class="chat-typing" id="chatTyping">
-                        <div class="chat-typing-dot"></div>
-                        <div class="chat-typing-dot"></div>
-                        <div class="chat-typing-dot"></div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="chat-typing-wrap" id="chatTypingWrap">
+                        <div class="chat-typing" id="chatTyping">
+                            <div class="chat-typing-dot"></div>
+                            <div class="chat-typing-dot"></div>
+                            <div class="chat-typing-dot"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="chat-input-bar">
@@ -1613,24 +1614,31 @@
             const buf = currentTerm.buffer.active;
             const totalLines = buf.baseY + buf.cursorY + 1;
 
-            // Scan from pendingOutputStart for a new prompt
-            for (let i = pendingOutputStart; i < totalLines; i++) {
+            // Look backwards from the end for a bare prompt (❯ with no command after it)
+            // This is more reliable than scanning forward
+            for (let i = totalLines - 1; i >= pendingOutputStart; i--) {
                 const line = buf.getLine(i);
                 if (!line) continue;
                 const text = line.translateToString(true);
+                if (!text.trim()) continue; // skip blank lines
 
-                // Skip the echoed prompt (the command we just sent)
-                if (chatSentFromInput && /^❯/.test(text)) {
-                    chatSentFromInput = false;
-                    pendingOutputStart = i + 1;
-                    continue;
-                }
-
-                // New prompt found → output is complete
-                if (/^❯\s*$/.test(text) || /^❯ .+/.test(text)) {
-                    // Collect output from pendingOutputStart to this line
-                    const htmlParts = [];
+                // Found a bare prompt → output is done
+                if (/^❯\s*$/.test(text)) {
+                    // Find where the echoed command line is (to skip it)
+                    let outputFrom = pendingOutputStart;
                     for (let j = pendingOutputStart; j < i; j++) {
+                        const l = buf.getLine(j);
+                        if (!l) continue;
+                        const t = l.translateToString(true);
+                        if (chatSentFromInput && /^❯/.test(t)) {
+                            chatSentFromInput = false;
+                            outputFrom = j + 1;
+                            break;
+                        }
+                    }
+                    // Collect output lines
+                    const htmlParts = [];
+                    for (let j = outputFrom; j < i; j++) {
                         const { html } = bufferLineToHtml(buf, j);
                         htmlParts.push(html);
                     }
@@ -1640,20 +1648,21 @@
                         addChatBubble('received', '', outputHtml);
                     }
                     scrollChatToBottom();
-
-                    // Update chatLastLine to current position
                     chatLastLine = totalLines;
                     waitingForOutput = false;
+                    chatSentFromInput = false;
 
-                    // If the prompt has a command (user typed in real terminal), show it
-                    const newCmd = text.match(/^❯ (.+)/);
-                    if (newCmd) {
-                        // Another command was typed — will be picked up on next cycle
-                    }
+                    // Resume normal history polling
+                    if (chatSnapshotTimer) clearInterval(chatSnapshotTimer);
+                    chatSnapshotTimer = setInterval(() => {
+                        if (!waitingForOutput) snapshotBuffer();
+                    }, 500);
                     return;
                 }
+
+                // Last non-blank line is not a bare prompt → still outputting
+                break;
             }
-            // Still waiting — keep typing indicator
         }
         function chatAutoResize() {
             chatInputField.style.height = 'auto';
@@ -1704,7 +1713,11 @@
                     cell = line.getCell(x, cell);
                     if (!cell) break;
                     const ch = cell.getChars();
-                    if (!ch) continue;
+                    // Skip only width-0 cells (2nd cell of wide chars)
+                    if (!ch) {
+                        const w = cell.getWidth ? cell.getWidth() : 1;
+                        if (w === 0) continue;
+                    }
                     let style = '';
                     try {
                         const fgMode = cell.getFgColorMode();
@@ -1759,12 +1772,15 @@
                         if (style) { html += '<span style="' + style + '">'; spanOpen = true; }
                         curStyle = style;
                     }
-                    if (ch === '<') html += '&lt;';
-                    else if (ch === '>') html += '&gt;';
-                    else if (ch === '&') html += '&amp;';
-                    else html += ch;
+                    const outCh = ch || ' ';
+                    if (outCh === '<') html += '&lt;';
+                    else if (outCh === '>') html += '&gt;';
+                    else if (outCh === '&') html += '&amp;';
+                    else html += outCh;
                 }
                 if (spanOpen) html += '</span>';
+                // Trim trailing spaces from rendered HTML
+                html = html.replace(/(<\/span>)?\s+$/, '$1');
                 return { text, html: html.length > 0 ? html : escText(text) };
             } catch(e) {
                 console.warn('bufferLineToHtml error:', e);
