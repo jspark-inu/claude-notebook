@@ -605,22 +605,21 @@
         .chat-msg-row.received .chat-bubble span[style*="text-decoration"] {
             text-underline-offset: 2px;
         }
-        /* Typing indicator */
-        .chat-typing-wrap {
-            padding: 4px 16px 0;
-            flex-shrink: 0;
-        }
-        .chat-typing {
+        /* Typing indicator — styled like a received bubble */
+        .chat-typing-row {
             display: none;
+            margin: 1px 0;
+        }
+        .chat-typing-row.active { display: flex; }
+        .chat-typing-bubble {
+            display: flex;
             gap: 5px;
             padding: 10px 16px;
             background: #e9e9eb;
             border-radius: 18px;
             border-bottom-left-radius: 4px;
-            width: fit-content;
             align-items: center;
         }
-        .chat-typing.active { display: flex; }
         .chat-typing-dot {
             width: 7px; height: 7px;
             border-radius: 50%;
@@ -854,13 +853,6 @@
                     <button class="chat-expand-btn" id="chatExpandBtn" title="Fullscreen"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg></button>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
-                <div class="chat-typing-wrap" id="chatTypingWrap">
-                    <div class="chat-typing" id="chatTyping">
-                        <div class="chat-typing-dot"></div>
-                        <div class="chat-typing-dot"></div>
-                        <div class="chat-typing-dot"></div>
-                    </div>
-                </div>
                 <div class="chat-input-bar">
                     <textarea class="chat-input-field" id="chatInputField" placeholder="iMessage" rows="1"></textarea>
                     <button class="chat-input-send" id="chatInputSend"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
@@ -912,8 +904,7 @@
         const chatAvatar = document.getElementById('chatAvatar');
         const chatContactName = document.getElementById('chatContactName');
         const chatContactStatus = document.getElementById('chatContactStatus');
-        const chatTyping = document.getElementById('chatTyping');
-        const chatTypingWrap = document.getElementById('chatTypingWrap');
+        let typingRow = null; // dynamically created typing indicator in chatMessages
         const configModalOverlay = document.getElementById('configModalOverlay');
         const configModalTitle = document.getElementById('configModalTitle');
         const configNameInput = document.getElementById('configNameInput');
@@ -1275,7 +1266,7 @@
             chatLastLine = 0;
             lastChatTimeStr = '';
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
-            chatTyping.classList.remove('active');
+            hideTyping();
 
             termPlaceholder.style.display = 'none';
             termToolbar.style.display = '';
@@ -1532,7 +1523,6 @@
         let chatLastLine = 0;
         let chatSnapshotTimer = null;
         let lastChatTimeStr = '';
-        let chatTypingTimeout = null;
         // Deferred output state
         let waitingForOutput = false;   // waiting for command output to finish
         let pendingOutputStart = 0;     // buffer line where pending output starts
@@ -1567,7 +1557,7 @@
             chatView.classList.remove('active');
             chatView.classList.remove('fullscreen');
             if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
-            chatTyping.classList.remove('active');
+            hideTyping();
             waitingForOutput = false;
             if (fitAddon) setTimeout(() => fitAddon.fit(), 50);
         }
@@ -1629,15 +1619,22 @@
             }
 
             // Not a bare prompt yet → still outputting
-            if (lastNonEmptyIdx < 0 || !/^❯\s*$/.test(lastNonEmpty)) return;
+            // Match: bare ❯, or lines ending with common prompts ($ % > ❯)
+            const isPrompt = /^❯\s*$/.test(lastNonEmpty) || /[❯\$%>]\s*$/.test(lastNonEmpty);
+            if (lastNonEmptyIdx < 0 || !isPrompt) return;
 
             // Output is done! Collect output lines (skip echo line)
             let outputFrom = pendingOutputStart;
-            // Skip first line if it's the echoed command
+            // Skip first non-empty line if it contains the echoed command
             if (chatSentFromInput) {
-                const firstLine = buf.getLine(pendingOutputStart);
-                if (firstLine && /^❯/.test(firstLine.translateToString(true))) {
-                    outputFrom = pendingOutputStart + 1;
+                for (let j = pendingOutputStart; j < lastNonEmptyIdx; j++) {
+                    const l = buf.getLine(j);
+                    if (!l) continue;
+                    const t = l.translateToString(true);
+                    if (!t.trim()) continue;
+                    // First non-empty line is likely the echo — skip it
+                    outputFrom = j + 1;
+                    break;
                 }
                 chatSentFromInput = false;
             }
@@ -1899,16 +1896,22 @@
         }
 
         function showTyping() {
-            chatTyping.classList.add('active');
+            if (typingRow) return; // already showing
+            typingRow = document.createElement('div');
+            typingRow.className = 'chat-typing-row active';
+            typingRow.innerHTML = '<div class="chat-typing-bubble"><div class="chat-typing-dot"></div><div class="chat-typing-dot"></div><div class="chat-typing-dot"></div></div>';
+            chatMessages.appendChild(typingRow);
             chatContactStatus.textContent = 'typing...';
             chatContactStatus.classList.add('typing');
             scrollChatToBottom();
         }
         function hideTyping() {
-            chatTyping.classList.remove('active');
+            if (typingRow) {
+                typingRow.remove();
+                typingRow = null;
+            }
             chatContactStatus.textContent = 'Connected';
             chatContactStatus.classList.remove('typing');
-            if (chatTypingTimeout) { clearTimeout(chatTypingTimeout); chatTypingTimeout = null; }
         }
 
         function addChatBubble(type, text, html) {
