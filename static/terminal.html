@@ -562,8 +562,8 @@
             border-bottom-right-radius: 4px;
         }
         .chat-msg-row.received .chat-bubble {
-            background: #e9e9eb;
-            color: #000;
+            background: #1e1e1e;
+            color: #d4d4d4;
             border-bottom-left-radius: 4px;
         }
         /* Typing indicator */
@@ -1557,70 +1557,126 @@
             }
         });
 
-        // Snapshot xterm buffer → parse into sent/received bubbles
-        // Strategy using newlines + leading spaces:
-        //   ❯ line → start "sent" mode (text after ❯)
-        //   In sent mode: lines with NO leading space → continue sent
-        //   In sent mode: blank line OR line WITH leading space → end sent, start received
-        //   In received mode: stay until next ❯
+        // ANSI 16-color palette matching xterm theme
+        const ANSI_COLORS = [
+            '#1e1e1e','#f44747','#6a9955','#d7ba7d','#569cd6','#c586c0','#4ec9b0','#d4d4d4',
+            '#808080','#f44747','#6a9955','#d7ba7d','#569cd6','#c586c0','#4ec9b0','#ffffff',
+        ];
+
+        // Convert a buffer line to HTML with color spans
+        function bufferLineToHtml(buf, lineIdx) {
+            const line = buf.getLine(lineIdx);
+            if (!line) return { text: '', html: '' };
+            const text = line.translateToString(true);
+            // Build HTML with color info
+            let html = '';
+            let lastFg = null, lastBold = false, lastItalic = false, spanOpen = false;
+            const cell = buf.getNullCell ? buf.getNullCell() : null;
+            const cols = line.length;
+            for (let x = 0; x < cols; x++) {
+                const c = cell ? line.getCell(x, cell) : line.getCell(x);
+                if (!c) break;
+                const ch = c.getChars();
+                if (!ch) continue;
+                const fgMode = c.getFgColorMode();
+                const bold = c.isBold();
+                const italic = c.isItalic();
+                let fg = null;
+                if (fgMode === 1) fg = ANSI_COLORS[c.getFgColor() & 0xf]; // 16 color
+                else if (fgMode === 2) fg = null; // 256 — skip for simplicity
+                else if (fgMode === 3) fg = '#' + c.getFgColor().toString(16).padStart(6, '0'); // RGB
+
+                const changed = fg !== lastFg || bold !== lastBold || italic !== lastItalic;
+                if (changed) {
+                    if (spanOpen) html += '</span>';
+                    spanOpen = false;
+                    if (fg || bold || italic) {
+                        let style = '';
+                        if (fg) style += 'color:' + fg + ';';
+                        if (bold) style += 'font-weight:700;';
+                        if (italic) style += 'font-style:italic;';
+                        html += '<span style="' + style + '">';
+                        spanOpen = true;
+                    }
+                    lastFg = fg; lastBold = bold; lastItalic = italic;
+                }
+                // Escape HTML entities
+                if (ch === '<') html += '&lt;';
+                else if (ch === '>') html += '&gt;';
+                else if (ch === '&') html += '&amp;';
+                else html += ch;
+            }
+            if (spanOpen) html += '</span>';
+            return { text, html: html || escText(text) };
+        }
+
+        function escText(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        // Snapshot xterm buffer → parse into sent/received bubbles with rich HTML
         function snapshotBuffer() {
             if (!currentTerm) return;
             const buf = currentTerm.buffer.active;
             const totalLines = buf.baseY + buf.cursorY + 1;
             if (totalLines <= chatLastLine) return;
-            const newLines = [];
+
+            // Read lines as both plain text (for classification) and HTML (for display)
+            const lines = [];
             for (let i = chatLastLine; i < totalLines; i++) {
-                const line = buf.getLine(i);
-                if (!line) continue;
-                newLines.push(line.translateToString(true));
+                const { text, html } = bufferLineToHtml(buf, i);
+                lines.push({ text, html });
             }
             chatLastLine = totalLines;
-            if (newLines.length === 0) return;
+            if (lines.length === 0) return;
 
             const blocks = [];
             let mode = 'received';
-            let sentLines = [];
-            let receivedLines = [];
+            let sentTexts = [], sentHtmls = [];
+            let recvTexts = [], recvHtmls = [];
 
             function flushSent() {
-                const text = sentLines.join('\n').replace(/\s+$/, '');
-                if (text) blocks.push({ type: 'sent', text });
-                sentLines = [];
+                const t = sentTexts.join('\n').replace(/\s+$/, '');
+                const h = sentHtmls.join('\n');
+                if (t) blocks.push({ type: 'sent', text: t, html: h });
+                sentTexts = []; sentHtmls = [];
             }
             function flushReceived() {
-                const text = receivedLines.join('\n').replace(/\s+$/, '');
-                if (text) blocks.push({ type: 'received', text });
-                receivedLines = [];
+                const t = recvTexts.join('\n').replace(/\s+$/, '');
+                const h = recvHtmls.join('\n');
+                if (t) blocks.push({ type: 'received', text: t, html: h });
+                recvTexts = []; recvHtmls = [];
             }
 
-            for (const line of newLines) {
-                // Prompt: ❯ must be at line start (col 0), followed by a space
-                // This prevents matching ❯ inside response text like "  ❯로 시작하는"
-                const promptMatch = line.match(/^❯ (.+)/);
+            for (const { text, html } of lines) {
+                const promptMatch = text.match(/^❯ (.+)/);
                 if (promptMatch) {
                     if (mode === 'sent') flushSent();
                     else flushReceived();
                     mode = 'sent';
-                    sentLines.push(promptMatch[1]);
+                    // Strip prompt from display
+                    const cmdStart = html.indexOf('❯');
+                    const cmdHtml = cmdStart >= 0 ? html.substring(cmdStart + 1).replace(/^\s+/, '') : escText(promptMatch[1]);
+                    sentTexts.push(promptMatch[1]);
+                    sentHtmls.push(cmdHtml);
                     continue;
                 }
 
                 if (mode === 'sent') {
-                    // User input has NO leading spaces
-                    // Response has leading spaces or is a blank line
-                    const isBlank = line.trim() === '';
-                    const hasLeadingSpace = /^\s/.test(line) && !isBlank;
+                    const isBlank = text.trim() === '';
+                    const hasLeadingSpace = /^\s/.test(text) && !isBlank;
                     if (isBlank || hasLeadingSpace) {
-                        // Transition to received
                         flushSent();
                         mode = 'received';
-                        receivedLines.push(line);
+                        recvTexts.push(text);
+                        recvHtmls.push(html);
                     } else {
-                        // Still user input (no leading space)
-                        sentLines.push(line);
+                        sentTexts.push(text);
+                        sentHtmls.push(html);
                     }
                 } else {
-                    receivedLines.push(line);
+                    recvTexts.push(text);
+                    recvHtmls.push(html);
                 }
             }
             if (mode === 'sent') flushSent();
@@ -1634,7 +1690,7 @@
             setTimeout(() => {
                 if (hasReceived) hideTyping();
                 for (const block of blocks) {
-                    if (block.text) addChatBubble(block.type, block.text);
+                    if (block.text) addChatBubble(block.type, block.text, block.html);
                 }
                 scrollChatToBottom();
             }, hasReceived ? 200 : 0);
@@ -1655,7 +1711,7 @@
             if (chatTypingTimeout) { clearTimeout(chatTypingTimeout); chatTypingTimeout = null; }
         }
 
-        function addChatBubble(type, text) {
+        function addChatBubble(type, text, html) {
             const now = new Date();
             const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
             if (timeStr !== lastChatTimeStr) {
@@ -1669,7 +1725,12 @@
             row.className = 'chat-msg-row ' + type;
             const bubble = document.createElement('div');
             bubble.className = 'chat-bubble';
-            bubble.textContent = text;
+            // received: use rich HTML with colors; sent: plain text
+            if (type === 'received' && html) {
+                bubble.innerHTML = html;
+            } else {
+                bubble.textContent = text;
+            }
             row.appendChild(bubble);
             chatMessages.appendChild(row);
         }
