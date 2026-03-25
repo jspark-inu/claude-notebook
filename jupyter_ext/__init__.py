@@ -212,37 +212,27 @@ IMAGE_CONTENT_TYPES = {
 }
 
 
-class WorkspaceRawFileHandler(IPythonHandler):
-    """Serve any workspace file as raw binary (for images, etc.)."""
+class WorkspaceFileHandler(IPythonHandler):
     @web.authenticated
     def get(self):
         workspace = self.settings["workspace_viewer_path"]
         file_path = self.get_argument("path", None)
+        raw_mode = self.get_argument("raw", None)
         if not file_path or not is_safe_path(workspace, file_path):
             raise web.HTTPError(400, "Invalid path")
         full_path = (workspace / file_path).resolve()
         if not full_path.is_file():
             raise web.HTTPError(404, "File not found")
         ext = full_path.suffix.lower()
-        ct = IMAGE_CONTENT_TYPES.get(ext, 'application/octet-stream')
-        self.set_header("Content-Type", ct)
-        self.set_header("Cache-Control", "public, max-age=3600")
-        try:
+
+        # Raw mode or image: serve as binary
+        if raw_mode is not None or ext in IMAGE_CONTENT_TYPES:
+            ct = IMAGE_CONTENT_TYPES.get(ext, 'application/octet-stream')
+            self.set_header("Content-Type", ct)
+            self.set_header("Cache-Control", "public, max-age=3600")
             self.finish(full_path.read_bytes())
-        except Exception as e:
-            raise web.HTTPError(500, str(e))
+            return
 
-
-class WorkspaceFileHandler(IPythonHandler):
-    @web.authenticated
-    def get(self):
-        workspace = self.settings["workspace_viewer_path"]
-        file_path = self.get_argument("path", None)
-        if not file_path or not is_safe_path(workspace, file_path):
-            raise web.HTTPError(400, "Invalid path")
-        full_path = (workspace / file_path).resolve()
-        if not full_path.is_file():
-            raise web.HTTPError(404, "File not found")
         try:
             content = full_path.read_text(encoding="utf-8")
             self.set_header("Content-Type", "application/json; charset=utf-8")
@@ -250,7 +240,7 @@ class WorkspaceFileHandler(IPythonHandler):
                 "path": file_path,
                 "name": full_path.name,
                 "content": content,
-                "extension": full_path.suffix.lower(),
+                "extension": ext,
             }, ensure_ascii=False))
         except Exception as e:
             raise web.HTTPError(500, str(e))
@@ -313,7 +303,6 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/workspace-viewer/static/(.+)"), WorkspaceStaticHandler),
         (ujoin(base_url, r"/workspace-viewer/api/tree"), WorkspaceTreeHandler),
         (ujoin(base_url, r"/workspace-viewer/api/file"), WorkspaceFileHandler),
-        (ujoin(base_url, r"/workspace-viewer/api/raw"), WorkspaceRawFileHandler),
         (ujoin(base_url, r"/workspace-viewer/api/terminal-names"), TerminalNamesHandler),
     ]
     nb_app.web_app.add_handlers(".*$", handlers)

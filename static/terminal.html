@@ -194,6 +194,9 @@
             gap: 8px;
             min-height: 48px;
             flex-shrink: 0;
+            position: sticky;
+            top: 0;
+            z-index: 5;
         }
         .term-toolbar-title {
             font-size: 13px;
@@ -564,14 +567,20 @@
         }
         .chat-msg-row.received .chat-bubble {
             max-width: 100%;
-            background: #e9e9eb;
-            color: #000;
+            background: #f6f8fa;
+            color: #1f2328;
             border-bottom-left-radius: 4px;
             font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace;
+            font-size: 12.5px;
             white-space: pre;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
+            border: 1px solid #d1d9e0;
+            border-radius: 12px;
+            border-bottom-left-radius: 4px;
+            padding: 10px 14px;
+            tab-size: 4;
         }
         .chat-msg-row.received .chat-bubble::-webkit-scrollbar {
             display: none;
@@ -1567,10 +1576,10 @@
             }
         });
 
-        // ANSI 16-color palette — adjusted for light bubble background
+        // ANSI 16-color palette — GitHub-style for light background (#f6f8fa)
         const ANSI_COLORS = [
-            '#24292e','#cf222e','#116329','#9a6700','#0550ae','#8250df','#0e7490','#57606a',
-            '#6e7781','#cf222e','#116329','#9a6700','#0550ae','#8250df','#0e7490','#24292e',
+            '#1f2328','#cf222e','#116329','#9a6700','#0550ae','#8250df','#0e7490','#59636e',
+            '#6e7781','#d1242f','#1a7f37','#b35900','#0969da','#8250df','#0e7490','#1f2328',
         ];
 
         // Convert a buffer line to HTML with color spans
