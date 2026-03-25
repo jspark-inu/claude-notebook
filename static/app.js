@@ -400,6 +400,7 @@
     function closePreviewFn() {
         if (isEditing && !confirm('Discard unsaved changes?')) return;
         previewOverlay.classList.remove('active');
+        previewBody.classList.remove('csv-mode');
         finder.style.display = '';
         previewBody.innerHTML = '';
         currentPreviewPath = '';
@@ -460,7 +461,9 @@
     });
 
     function renderPreviewMode(data) {
-        if (CSV_EXTS.includes(data.extension)) {
+        const isCsv = CSV_EXTS.includes(data.extension);
+        previewBody.classList.toggle('csv-mode', isCsv);
+        if (isCsv) {
             renderCsvViewer(data.content);
         } else if (MD_EXTS.includes(data.extension) && typeof marked !== 'undefined') {
             previewBody.innerHTML = `<div class="markdown-body">${marked.parse(data.content)}</div>`;
@@ -473,7 +476,9 @@
     }
 
     function renderEditMode(data) {
-        if (CSV_EXTS.includes(data.extension)) {
+        const isCsv = CSV_EXTS.includes(data.extension);
+        previewBody.classList.toggle('csv-mode', isCsv);
+        if (isCsv) {
             renderCsvEditor(data.content);
         } else {
             previewBody.innerHTML = `<textarea class="edit-textarea" spellcheck="false">${escHtml(data.content)}</textarea>`;
