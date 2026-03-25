@@ -468,11 +468,11 @@
         /* ===== iMessage Chat — light mode, position:fixed fullscreen ===== */
         .chat-view {
             display: none;
-            position: fixed;
+            position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
             flex-direction: column;
             background: #fff;
-            z-index: 2000;
+            z-index: 10;
         }
         .chat-view.active {
             display: flex;
@@ -1535,25 +1535,10 @@
             }
         });
 
-        // Parse a line to detect shell prompt → returns {sent:bool, command:string}
-        // Only matches very specific prompt patterns to avoid false positives
-        const PROMPT_PATTERNS = [
-            /^(.*❯)\s+(.*)/,                       // starship: ❯ command
-            /^(\S+\$)\s+(.*)/,                      // user@host:~$ command
-            /^(\([^)]+\)\s*\S*\$)\s+(.*)/,          // (venv) user$ command
-            /^(\S+%)\s+(.*)/,                        // zsh: user% command
-            /^(\([^)]+\)\s*\S*%)\s+(.*)/,            // (venv) user% command
-        ];
-
-        function parsePromptLine(line) {
-            for (const re of PROMPT_PATTERNS) {
-                const m = line.match(re);
-                if (m) return { sent: true, text: m[2] };
-            }
-            return { sent: false, text: line };
-        }
-
         // Snapshot xterm buffer → parse into sent/received bubbles
+        // Strategy: only lines containing ❯ are user prompts.
+        // The text AFTER ❯ is the user's command (sent).
+        // Everything else is terminal output (received).
         function snapshotBuffer() {
             if (!currentTerm) return;
             const buf = currentTerm.buffer.active;
@@ -1568,25 +1553,30 @@
             chatLastLine = totalLines;
             if (newLines.length === 0) return;
 
-            // Group consecutive lines into sent/received blocks
+            // Split lines into blocks: prompt lines → sent, others → received
             const blocks = [];
-            let currentBlock = null;
+            let receivedLines = [];
+
+            function flushReceived() {
+                const text = receivedLines.join('\n').replace(/\s+$/, '');
+                if (text) blocks.push({ type: 'received', text });
+                receivedLines = [];
+            }
+
             for (const line of newLines) {
-                const trimmed = line.trim();
-                if (!trimmed) {
-                    if (currentBlock) currentBlock.lines.push('');
-                    continue;
-                }
-                const parsed = parsePromptLine(line);
-                const type = parsed.sent ? 'sent' : 'received';
-                const displayLine = parsed.text;
-                if (!currentBlock || currentBlock.type !== type) {
-                    currentBlock = { type, lines: [displayLine] };
-                    blocks.push(currentBlock);
+                // Check for ❯ prompt
+                const idx = line.indexOf('❯');
+                if (idx !== -1) {
+                    // Flush any pending received lines first
+                    flushReceived();
+                    // Extract command after ❯ (skip the ❯ and any space)
+                    const cmd = line.substring(idx + 1).replace(/^\s+/, '');
+                    if (cmd) blocks.push({ type: 'sent', text: cmd });
                 } else {
-                    currentBlock.lines.push(displayLine);
+                    receivedLines.push(line);
                 }
             }
+            flushReceived();
 
             if (blocks.length === 0) return;
 
@@ -1596,8 +1586,7 @@
             setTimeout(() => {
                 if (hasReceived) hideTyping();
                 for (const block of blocks) {
-                    const text = block.lines.join('\n').replace(/\s+$/, '');
-                    if (text) addChatBubble(block.type, text);
+                    if (block.text) addChatBubble(block.type, block.text);
                 }
                 scrollChatToBottom();
             }, hasReceived ? 200 : 0);
