@@ -957,7 +957,38 @@
         return csvStringify(csvEditRows);
     }
 
+    // === URL hash navigation ===
+    function syncHashToPath() {
+        const hash = decodeURIComponent(location.hash.slice(1));
+        if (!hash) { loadFinderGrid(''); return; }
+        // Check if it looks like a file (has extension) → open preview in its parent folder
+        const lastPart = hash.split('/').pop();
+        if (lastPart.includes('.')) {
+            const parentPath = hash.includes('/') ? hash.substring(0, hash.lastIndexOf('/')) : '';
+            loadFinderGrid(parentPath);
+            openPreview(hash);
+        } else {
+            loadFinderGrid(hash);
+        }
+    }
+
+    function updateHash(path) {
+        const newHash = path ? '#' + encodeURIComponent(path) : '';
+        if (location.hash !== newHash) {
+            history.replaceState(null, '', location.pathname + location.search + newHash);
+        }
+    }
+
+    // Patch loadFinderGrid to update hash
+    const _origLoadFinderGrid = loadFinderGrid;
+    loadFinderGrid = function(dirPath) {
+        updateHash(dirPath);
+        return _origLoadFinderGrid(dirPath);
+    };
+
+    window.addEventListener('hashchange', syncHashToPath);
+
     // === Init ===
     loadTree();
-    loadFinderGrid('');
+    syncHashToPath();
 })();
