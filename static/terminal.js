@@ -448,6 +448,8 @@ async function deleteTerminal(name) {
             terminalContainer.style.display = 'none';
             termInputBar.classList.add('hidden');
             scrollbar.classList.remove('active');
+            history.replaceState(null, '', location.pathname + location.search);
+            document.title = 'Terminal - Claude Notebook';
         }
         await loadTerminals();
     } catch (e) {
@@ -623,6 +625,13 @@ function connectTerminal(name) {
     termInputBar.classList.remove('hidden');
     scrollbar.classList.add('active');
     termTitle.textContent = currentDisplayName;
+
+    // Update URL hash and page title for browser bookmarking
+    const newHash = '#' + encodeURIComponent(name);
+    if (location.hash !== newHash) {
+        history.replaceState(null, '', location.pathname + location.search + newHash);
+    }
+    document.title = currentDisplayName + ' - Claude Notebook';
 
     // Auto-open chat mode if configured
     const slotCfg = getSlotConfig(name);
@@ -1379,7 +1388,16 @@ renameBtn.addEventListener('click', async () => {
     }
 });
 
-loadTerminals();
+// === URL hash navigation for terminal bookmarking ===
+function connectFromHash() {
+    const hash = decodeURIComponent(location.hash.slice(1));
+    if (hash && terminalData[hash] && hash !== currentName) {
+        connectTerminal(hash);
+    }
+}
+
+loadTerminals().then(() => connectFromHash());
 setInterval(loadTerminals, 10000);
+window.addEventListener('hashchange', connectFromHash);
 
 })();
