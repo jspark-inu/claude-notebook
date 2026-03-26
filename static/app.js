@@ -452,6 +452,7 @@
         previewEdit.style.display = 'none';
         previewSave.style.display = 'none';
         previewEdit.classList.remove('active');
+        updateHash(currentPath);
         const folderName = currentPath.split('/').pop() || 'Workspace';
         document.title = folderName + ' - Claude Notebook';
     }
@@ -963,9 +964,11 @@
     }
 
     // === URL hash navigation ===
+    let navigatingBack = false;
     function syncHashToPath() {
+        navigatingBack = true;
         const hash = decodeURIComponent(location.hash.slice(1));
-        if (!hash) { loadFinderGrid(''); return; }
+        if (!hash) { loadFinderGrid(''); navigatingBack = false; return; }
         // Check if it looks like a file (has extension) → open preview in its parent folder
         const lastPart = hash.split('/').pop();
         if (lastPart.includes('.')) {
@@ -975,12 +978,21 @@
         } else {
             loadFinderGrid(hash);
         }
+        navigatingBack = false;
     }
 
+    let hashInitialized = false;
     function updateHash(path) {
         const newHash = path ? '#' + encodeURIComponent(path) : '';
         if (location.hash !== newHash) {
-            history.replaceState(null, '', location.pathname + location.search + newHash);
+            if (!hashInitialized || navigatingBack) {
+                history.replaceState(null, '', location.pathname + location.search + newHash);
+                hashInitialized = true;
+            } else {
+                history.pushState(null, '', location.pathname + location.search + newHash);
+            }
+        } else if (!hashInitialized) {
+            hashInitialized = true;
         }
     }
 
@@ -994,6 +1006,7 @@
     };
 
     window.addEventListener('hashchange', syncHashToPath);
+    window.addEventListener('popstate', syncHashToPath);
 
     // === Init ===
     loadTree();
