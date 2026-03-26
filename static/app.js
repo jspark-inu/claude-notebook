@@ -640,6 +640,7 @@
         if (!csvConfigCache.colWidths) csvConfigCache.colWidths = {};
         if (!csvConfigCache.rowColors) csvConfigCache.rowColors = {};
         if (!csvConfigCache.colorRules) csvConfigCache.colorRules = {};
+        if (!csvConfigCache.checkboxCols) csvConfigCache.checkboxCols = {};
         return csvConfigCache;
     }
     function saveCsvConfig() {
@@ -674,6 +675,15 @@
     }
     function loadCsvColorRules(path) {
         return csvConfigCache && csvConfigCache.colorRules ? csvConfigCache.colorRules[path] || null : null;
+    }
+    function saveCsvCheckboxCols(path, cols) {
+        if (!csvConfigCache) csvConfigCache = { colWidths: {}, rowColors: {} };
+        if (!csvConfigCache.checkboxCols) csvConfigCache.checkboxCols = {};
+        csvConfigCache.checkboxCols[path] = cols;
+        saveCsvConfig();
+    }
+    function loadCsvCheckboxCols(path) {
+        return csvConfigCache && csvConfigCache.checkboxCols ? csvConfigCache.checkboxCols[path] || null : null;
     }
     const ROW_COLORS = ['none', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
     const RULE_OPS = [
@@ -829,6 +839,8 @@
         let rowColors = loadCsvRowColors(filePath) || {};
         // Conditional color rules
         let colorRules = loadCsvColorRules(filePath) || [];
+        // Checkbox columns
+        const checkboxCols = loadCsvCheckboxCols(filePath) || [];
 
         // Color rules button handler
         currentCsvHeaders = headers;
@@ -880,10 +892,15 @@
                 html += `<tr${colorAttr} data-orig="${origIdx}">`;
                 headers.forEach((_, ci) => {
                     const val = row[ci] || '';
-                    const num = parseFloat(val);
-                    const cls = !isNaN(num) && val.trim() !== '' ? ' num' : '';
-                    const colorBtn = ci === 0 ? '<button class="csv-row-color" title="Color">&#9679;</button>' : '';
-                    html += `<td class="${cls}">${colorBtn}<span class="csv-cell-text">${escHtml(val)}</span><button class="csv-cell-copy" title="Copy">&#x2398;</button></td>`;
+                    if (checkboxCols.includes(ci)) {
+                        const checked = val.toLowerCase() === 'true';
+                        html += `<td class="csv-checkbox-cell"><input type="checkbox"${checked ? ' checked' : ''} disabled></td>`;
+                    } else {
+                        const num = parseFloat(val);
+                        const cls = !isNaN(num) && val.trim() !== '' ? ' num' : '';
+                        const colorBtn = ci === 0 ? '<button class="csv-row-color" title="Color">&#9679;</button>' : '';
+                        html += `<td class="${cls}">${colorBtn}<span class="csv-cell-text">${escHtml(val)}</span><button class="csv-cell-copy" title="Copy">&#x2398;</button></td>`;
+                    }
                 });
                 html += '</tr>';
             });
@@ -986,6 +1003,50 @@
 
     // === CSV Editor (editable table with row/col add/delete) ===
     let csvEditRows = [];
+    let csvContextEl = null;
+
+    function showCsvContextMenu(x, y, rowIdx, colIdx) {
+        hideCsvContextMenu();
+        csvContextEl = document.createElement('div');
+        csvContextEl.className = 'finder-context';
+        csvContextEl.style.left = x + 'px';
+        csvContextEl.style.top = y + 'px';
+        const actions = [];
+        if (csvEditRows.length > 1) {
+            actions.push({ label: 'Delete Row', cls: 'danger', action: () => {
+                csvEditRows.splice(rowIdx, 1);
+                renderCsvEditTable();
+            }});
+        }
+        if (csvEditRows[0].length > 1) {
+            actions.push({ label: 'Delete Column', cls: 'danger', action: () => {
+                csvEditRows.forEach(r => r.splice(colIdx, 1));
+                // Update checkbox cols
+                const filePath = currentFileData ? currentFileData.path : '';
+                let cbCols = loadCsvCheckboxCols(filePath);
+                if (cbCols) {
+                    cbCols = cbCols.filter(c => c !== colIdx).map(c => c > colIdx ? c - 1 : c);
+                    saveCsvCheckboxCols(filePath, cbCols);
+                }
+                renderCsvEditTable();
+            }});
+        }
+        actions.forEach(({ label, cls, action }) => {
+            const el = document.createElement('div');
+            el.className = 'finder-context-item' + (cls ? ' ' + cls : '');
+            el.textContent = label;
+            el.addEventListener('click', () => { hideCsvContextMenu(); action(); });
+            csvContextEl.appendChild(el);
+        });
+        document.body.appendChild(csvContextEl);
+        const rect = csvContextEl.getBoundingClientRect();
+        if (rect.right > window.innerWidth) csvContextEl.style.left = (x - rect.width) + 'px';
+        if (rect.bottom > window.innerHeight) csvContextEl.style.top = (y - rect.height) + 'px';
+    }
+    function hideCsvContextMenu() {
+        if (csvContextEl) { csvContextEl.remove(); csvContextEl = null; }
+    }
+    document.addEventListener('click', hideCsvContextMenu);
 
     function renderCsvEditor(content) {
         csvEditRows = parseCsv(content);
@@ -1009,6 +1070,7 @@
         if (!colWidths || colWidths.length !== maxCols) {
             colWidths = new Array(maxCols).fill(150);
         }
+        let checkboxCols = loadCsvCheckboxCols(filePath) || [];
 
         let html = '<div class="csv-editor"><div class="csv-edit-toolbar">';
         html += '<button class="csv-edit-btn" id="csvAddRow">+ Row</button>';
@@ -1018,28 +1080,28 @@
         html += `<div class="csv-edit-scroll"><table class="csv-table csv-edit-table" style="width:${totalW}px"><colgroup>`;
         html += '<col style="width:36px">';
         for (let ci = 0; ci < maxCols; ci++) { html += `<col style="width:${colWidths[ci]}px">`; }
-        // Column drag handle row at top
+        // Column drag handle + checkbox toggle row at top
         html += '</colgroup><thead><tr class="csv-col-drag-row"><td></td>';
         for (let ci = 0; ci < maxCols; ci++) {
-            html += `<td class="csv-col-actions"><span class="csv-drag-handle csv-col-drag" data-col="${ci}" title="Drag to reorder">&#8801;</span></td>`;
+            const isCb = checkboxCols.includes(ci);
+            html += `<td class="csv-col-actions"><span class="csv-drag-handle csv-col-drag" data-col="${ci}" title="Drag to reorder">&#8801;</span><button class="csv-cb-toggle${isCb ? ' active' : ''}" data-col="${ci}" title="Toggle checkbox column">&#9745;</button></td>`;
         }
         html += '</tr></thead><tbody>';
         rows.forEach((row, ri) => {
             html += '<tr>';
-            html += `<td class="csv-row-actions"><span class="csv-drag-handle csv-row-drag" data-row="${ri}" title="Drag to reorder">&#9776;</span><button class="csv-del-btn" data-row="${ri}" title="Delete row">&times;</button></td>`;
+            html += `<td class="csv-row-actions"><span class="csv-drag-handle csv-row-drag" data-row="${ri}" title="Drag to reorder">&#9776;</span></td>`;
             row.forEach((cell, ci) => {
                 const isHeader = ri === 0 ? ' csv-header-cell' : '';
                 const resizer = ri === 0 ? `<span class="csv-resize-handle" data-col="${ci}"></span>` : '';
-                html += `<td class="csv-cell${isHeader}" contenteditable="true" data-row="${ri}" data-col="${ci}">${escHtml(cell)}${resizer}</td>`;
+                if (checkboxCols.includes(ci) && ri > 0) {
+                    const checked = cell.toLowerCase() === 'true';
+                    html += `<td class="csv-cell csv-checkbox-cell" data-row="${ri}" data-col="${ci}"><input type="checkbox" class="csv-checkbox" data-row="${ri}" data-col="${ci}"${checked ? ' checked' : ''}></td>`;
+                } else {
+                    html += `<td class="csv-cell${isHeader}" contenteditable="true" data-row="${ri}" data-col="${ci}">${escHtml(cell)}${resizer}</td>`;
+                }
             });
             html += '</tr>';
         });
-        // Column delete row at bottom
-        html += '<tr class="csv-col-actions-row"><td></td>';
-        for (let ci = 0; ci < maxCols; ci++) {
-            html += `<td class="csv-col-actions"><button class="csv-del-btn" data-col="${ci}" title="Delete column">&times;</button></td>`;
-        }
-        html += '</tr>';
         html += '</tbody></table></div></div>';
 
         previewBody.innerHTML = html;
@@ -1080,21 +1142,40 @@
             csvEditRows.forEach(r => r.push(''));
             renderCsvEditTable();
         });
-        // Delete row
-        previewBody.querySelectorAll('.csv-del-btn[data-row]').forEach(btn => {
+        // Right-click context menu for delete
+        previewBody.querySelectorAll('.csv-cell').forEach(td => {
+            td.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showCsvContextMenu(e.clientX, e.clientY, parseInt(td.dataset.row), parseInt(td.dataset.col));
+            });
+        });
+        // Checkbox column toggle
+        previewBody.querySelectorAll('.csv-cb-toggle').forEach(btn => {
             btn.addEventListener('click', () => {
-                if (csvEditRows.length <= 1) return;
-                csvEditRows.splice(parseInt(btn.dataset.row), 1);
+                const ci = parseInt(btn.dataset.col);
+                // Sync cells first
+                previewBody.querySelectorAll('.csv-cell[contenteditable]').forEach(td => {
+                    csvEditRows[parseInt(td.dataset.row)][parseInt(td.dataset.col)] = td.textContent;
+                });
+                if (checkboxCols.includes(ci)) {
+                    checkboxCols = checkboxCols.filter(c => c !== ci);
+                } else {
+                    checkboxCols.push(ci);
+                    // Initialize non-header cells to "false" if empty
+                    for (let ri = 1; ri < csvEditRows.length; ri++) {
+                        const v = (csvEditRows[ri][ci] || '').toLowerCase();
+                        if (v !== 'true' && v !== 'false') csvEditRows[ri][ci] = 'false';
+                    }
+                }
+                saveCsvCheckboxCols(filePath, checkboxCols);
                 renderCsvEditTable();
             });
         });
-        // Delete column
-        previewBody.querySelectorAll('.csv-del-btn[data-col]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (csvEditRows[0].length <= 1) return;
-                const ci = parseInt(btn.dataset.col);
-                csvEditRows.forEach(r => r.splice(ci, 1));
-                renderCsvEditTable();
+        // Checkbox change
+        previewBody.querySelectorAll('.csv-checkbox').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const ri = parseInt(cb.dataset.row), ci = parseInt(cb.dataset.col);
+                csvEditRows[ri][ci] = cb.checked ? 'true' : 'false';
             });
         });
         // Drag to reorder rows
