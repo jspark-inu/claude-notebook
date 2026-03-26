@@ -720,7 +720,7 @@
     let currentCsvHeaders = [];
     let currentCsvRenderFn = null;
 
-    function showColorRulesModal(filePath, headers, rowColors, colorRules, onSave) {
+    function showColorRulesModal(filePath, headers, colorRules, onSave) {
         let rules = JSON.parse(JSON.stringify(colorRules || []));
         const overlay = document.createElement('div');
         overlay.className = 'color-rules-overlay';
@@ -730,7 +730,7 @@
             rules.forEach((rule, i) => {
                 const colOpts = headers.map(h => `<option value="${escHtml(h)}"${rule.column === h ? ' selected' : ''}>${escHtml(h)}</option>`).join('');
                 const opOpts = RULE_OPS.map(o => `<option value="${o.value}"${rule.op === o.value ? ' selected' : ''}>${o.label}</option>`).join('');
-                const colorDots = ROW_COLORS.filter(c => c !== 'none').map(c =>
+                const colorDots = ROW_COLORS.map(c =>
                     `<div class="csv-color-dot${rule.color === c ? ' active' : ''}" data-color="${c}" data-rule="${i}"></div>`
                 ).join('');
                 const needsValue = rule.op !== 'empty';
@@ -750,10 +750,7 @@
                     <div class="color-rules-list">${rulesHtml || '<div class="color-rules-empty">No rules defined</div>'}</div>
                     <div class="color-rules-actions">
                         <button class="color-rules-add">+ Add Rule</button>
-                        <div class="color-rules-reset-group">
-                            <button class="color-rules-reset-manual" title="Reset manual row colors">Reset Manual Colors</button>
-                            <button class="color-rules-reset-rules" title="Remove all rules">Reset Rules</button>
-                        </div>
+                        <button class="color-rules-reset-rules" title="Remove all rules">Reset Rules</button>
                     </div>
                     <div class="color-rules-buttons">
                         <button class="color-rules-cancel">Cancel</button>
@@ -794,13 +791,6 @@
                 rules.push({ column: headers[0] || '', op: 'equals', value: '', color: 'red' });
                 renderModal();
             });
-            overlay.querySelector('.color-rules-reset-manual').addEventListener('click', () => {
-                if (confirm('Reset all manual row colors?')) {
-                    saveCsvRowColors(filePath, {});
-                    onSave(rules, true);
-                    overlay.remove();
-                }
-            });
             overlay.querySelector('.color-rules-reset-rules').addEventListener('click', () => {
                 if (confirm('Remove all color rules?')) {
                     rules = [];
@@ -809,7 +799,7 @@
             });
             overlay.querySelector('.color-rules-cancel').addEventListener('click', () => overlay.remove());
             overlay.querySelector('.color-rules-save').addEventListener('click', () => {
-                onSave(rules, false);
+                onSave(rules);
                 overlay.remove();
             });
         }
@@ -835,8 +825,6 @@
             colWidths = headers.map(() => 150);
         }
 
-        // Row colors (keyed by original row index)
-        let rowColors = loadCsvRowColors(filePath) || {};
         // Conditional color rules
         let colorRules = loadCsvColorRules(filePath) || [];
         // Checkbox columns
@@ -846,10 +834,9 @@
         currentCsvHeaders = headers;
         currentCsvRenderFn = function() { render(); };
         previewColorRules.onclick = () => {
-            showColorRulesModal(filePath, headers, rowColors, colorRules, (newRules, resetManual) => {
+            showColorRulesModal(filePath, headers, colorRules, (newRules) => {
                 colorRules = newRules;
                 saveCsvColorRules(filePath, colorRules);
-                if (resetManual) rowColors = {};
                 render();
             });
         };
@@ -884,22 +871,18 @@
             });
             html += '</tr></thead><tbody>';
             filtered.forEach(({ row, origIdx }) => {
-                // Manual color takes priority over conditional color
-                const manualColor = rowColors[origIdx] || '';
-                const condColor = manualColor && manualColor !== 'none' ? '' : getConditionalColor(row, headers, colorRules);
-                const color = (manualColor && manualColor !== 'none') ? manualColor : condColor;
+                const color = getConditionalColor(row, headers, colorRules);
                 const colorAttr = color && color !== 'none' ? ` data-color="${color}"` : '';
                 html += `<tr${colorAttr} data-orig="${origIdx}">`;
                 headers.forEach((_, ci) => {
                     const val = row[ci] || '';
                     if (checkboxCols.includes(ci)) {
                         const checked = val.toLowerCase() === 'true';
-                        html += `<td class="csv-checkbox-cell"><input type="checkbox"${checked ? ' checked' : ''} disabled></td>`;
+                        html += `<td class="csv-checkbox-cell"><input type="checkbox" class="csv-viewer-cb" data-orig="${origIdx}" data-col="${ci}"${checked ? ' checked' : ''}></td>`;
                     } else {
                         const num = parseFloat(val);
                         const cls = !isNaN(num) && val.trim() !== '' ? ' num' : '';
-                        const colorBtn = ci === 0 ? '<button class="csv-row-color" title="Color">&#9679;</button>' : '';
-                        html += `<td class="${cls}">${colorBtn}<span class="csv-cell-text">${escHtml(val)}</span><button class="csv-cell-copy" title="Copy">&#x2398;</button></td>`;
+                        html += `<td class="${cls}"><span class="csv-cell-text">${escHtml(val)}</span><button class="csv-cell-copy" title="Copy">&#x2398;</button></td>`;
                     }
                 });
                 html += '</tr>';
@@ -966,35 +949,23 @@
                     });
                 });
             });
-            // Bind row color buttons
-            previewBody.querySelectorAll('.csv-row-color').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    // Remove any existing menu
-                    document.querySelectorAll('.csv-row-color-menu').forEach(m => m.remove());
-                    const tr = btn.closest('tr');
-                    const origIdx = parseInt(tr.dataset.orig);
-                    const rect = btn.getBoundingClientRect();
-                    const menu = document.createElement('div');
-                    menu.className = 'csv-row-color-menu';
-                    ROW_COLORS.forEach(c => {
-                        const dot = document.createElement('div');
-                        dot.className = 'csv-color-dot' + ((rowColors[origIdx] || 'none') === c ? ' active' : '');
-                        dot.dataset.color = c;
-                        dot.addEventListener('click', () => {
-                            if (c === 'none') delete rowColors[origIdx];
-                            else rowColors[origIdx] = c;
-                            saveCsvRowColors(filePath, rowColors);
-                            menu.remove();
-                            render();
-                        });
-                        menu.appendChild(dot);
-                    });
-                    menu.style.left = rect.right + 4 + 'px';
-                    menu.style.top = rect.top - 4 + 'px';
-                    document.body.appendChild(menu);
-                    const closeMenu = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', closeMenu); } };
-                    setTimeout(() => document.addEventListener('mousedown', closeMenu), 0);
+            // Bind viewer checkboxes (interactive in view mode)
+            previewBody.querySelectorAll('.csv-viewer-cb').forEach(cb => {
+                cb.addEventListener('change', async () => {
+                    const origIdx = parseInt(cb.dataset.orig);
+                    const ci = parseInt(cb.dataset.col);
+                    dataRows[origIdx][ci] = cb.checked ? 'true' : 'false';
+                    // Rebuild full content and save
+                    const allRows = [headers, ...dataRows];
+                    const content = csvStringify(allRows);
+                    try {
+                        await fetch(`${BASE}/api/save`, mutFetchOpts({
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: filePath, content }),
+                        }));
+                    } catch (e) {}
+                    render();
                 });
             });
         }
@@ -1157,8 +1128,13 @@
                 previewBody.querySelectorAll('.csv-cell[contenteditable]').forEach(td => {
                     csvEditRows[parseInt(td.dataset.row)][parseInt(td.dataset.col)] = td.textContent;
                 });
+                const headerName = csvEditRows[0][ci] || '';
                 if (checkboxCols.includes(ci)) {
                     checkboxCols = checkboxCols.filter(c => c !== ci);
+                    // Remove default color rules for this checkbox column
+                    let rules = loadCsvColorRules(filePath) || [];
+                    rules = rules.filter(r => !(r.column === headerName && r._checkbox));
+                    saveCsvColorRules(filePath, rules);
                 } else {
                     checkboxCols.push(ci);
                     // Initialize non-header cells to "false" if empty
@@ -1166,6 +1142,11 @@
                         const v = (csvEditRows[ri][ci] || '').toLowerCase();
                         if (v !== 'true' && v !== 'false') csvEditRows[ri][ci] = 'false';
                     }
+                    // Add default color rules: checked → red, unchecked → none
+                    let rules = loadCsvColorRules(filePath) || [];
+                    rules.push({ column: headerName, op: 'equals', value: 'true', color: 'red', _checkbox: true });
+                    rules.push({ column: headerName, op: 'equals', value: 'false', color: 'none', _checkbox: true });
+                    saveCsvColorRules(filePath, rules);
                 }
                 saveCsvCheckboxCols(filePath, checkboxCols);
                 renderCsvEditTable();

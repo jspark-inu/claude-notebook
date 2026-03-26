@@ -1254,11 +1254,6 @@ tr:first-child .csv-row-actions {
 .color-rules-add:hover {
     border-color: var(--text);
 }
-.color-rules-reset-group {
-    display: flex;
-    gap: 6px;
-}
-.color-rules-reset-manual,
 .color-rules-reset-rules {
     padding: 4px 10px;
     border: 1px solid var(--border);
@@ -1268,7 +1263,6 @@ tr:first-child .csv-row-actions {
     cursor: pointer;
     font-size: 11px;
 }
-.color-rules-reset-manual:hover,
 .color-rules-reset-rules:hover {
     color: #ef4444;
     border-color: #ef4444;
