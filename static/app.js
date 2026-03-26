@@ -1018,7 +1018,12 @@
         html += `<div class="csv-edit-scroll"><table class="csv-table csv-edit-table" style="width:${totalW}px"><colgroup>`;
         html += '<col style="width:36px">';
         for (let ci = 0; ci < maxCols; ci++) { html += `<col style="width:${colWidths[ci]}px">`; }
-        html += '</colgroup><tbody>';
+        // Column drag handle row at top
+        html += '</colgroup><thead><tr class="csv-col-drag-row"><td></td>';
+        for (let ci = 0; ci < maxCols; ci++) {
+            html += `<td class="csv-col-actions"><span class="csv-drag-handle csv-col-drag" data-col="${ci}" title="Drag to reorder">&#8801;</span></td>`;
+        }
+        html += '</tr></thead><tbody>';
         rows.forEach((row, ri) => {
             html += '<tr>';
             html += `<td class="csv-row-actions"><span class="csv-drag-handle csv-row-drag" data-row="${ri}" title="Drag to reorder">&#9776;</span><button class="csv-del-btn" data-row="${ri}" title="Delete row">&times;</button></td>`;
@@ -1029,10 +1034,10 @@
             });
             html += '</tr>';
         });
-        // Column delete row
+        // Column delete row at bottom
         html += '<tr class="csv-col-actions-row"><td></td>';
         for (let ci = 0; ci < maxCols; ci++) {
-            html += `<td class="csv-col-actions"><span class="csv-drag-handle csv-col-drag" data-col="${ci}" title="Drag to reorder">&#8801;</span><button class="csv-del-btn" data-col="${ci}" title="Delete column">&times;</button></td>`;
+            html += `<td class="csv-col-actions"><button class="csv-del-btn" data-col="${ci}" title="Delete column">&times;</button></td>`;
         }
         html += '</tr>';
         html += '</tbody></table></div></div>';

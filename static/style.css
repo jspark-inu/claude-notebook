@@ -962,9 +962,19 @@ td.csv-drag-over-right {
 }
 tr:first-child .csv-row-actions {
     position: sticky;
-    top: 0;
     z-index: 2;
     background: var(--sidebar-bg);
+}
+.csv-col-drag-row {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+}
+.csv-col-drag-row td {
+    background: var(--sidebar-bg);
+    border: none !important;
+    padding: 2px 0 !important;
+    text-align: center;
 }
 .csv-col-actions-row td {
     border: none !important;
