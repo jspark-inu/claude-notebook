@@ -1287,8 +1287,8 @@
     }
 
     function csvTableToString() {
-        // Sync any focused cell
-        previewBody.querySelectorAll('.csv-cell').forEach(td => {
+        // Sync any focused cell (skip checkbox cells which store values via csvEditRows directly)
+        previewBody.querySelectorAll('.csv-cell[contenteditable]').forEach(td => {
             csvEditRows[parseInt(td.dataset.row)][parseInt(td.dataset.col)] = td.textContent;
         });
         return csvStringify(csvEditRows);
