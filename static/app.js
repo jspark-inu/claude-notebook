@@ -435,6 +435,8 @@
         previewEdit.style.display = 'none';
         previewSave.style.display = 'none';
         loadPreviewContent(path);
+        const fileName = path.split('/').pop() || path;
+        document.title = fileName + ' - Claude Notebook';
     }
 
     function closePreviewFn() {
@@ -449,6 +451,8 @@
         previewEdit.style.display = 'none';
         previewSave.style.display = 'none';
         previewEdit.classList.remove('active');
+        const folderName = currentPath.split('/').pop() || 'Workspace';
+        document.title = folderName + ' - Claude Notebook';
     }
     previewClose.addEventListener('click', closePreviewFn);
     previewDownload.addEventListener('click', () => { if (currentPreviewPath) downloadFile(currentPreviewPath); });
@@ -979,10 +983,12 @@
         }
     }
 
-    // Patch loadFinderGrid to update hash
+    // Patch loadFinderGrid to update hash and title
     const _origLoadFinderGrid = loadFinderGrid;
     loadFinderGrid = function(dirPath) {
         updateHash(dirPath);
+        const folderName = dirPath.split('/').pop() || 'Workspace';
+        document.title = folderName + ' - Claude Notebook';
         return _origLoadFinderGrid(dirPath);
     };
 
