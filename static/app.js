@@ -851,8 +851,10 @@
             if (sortCol >= 0) {
                 filtered.sort((a, b) => {
                     const va = a.row[sortCol] || '', vb = b.row[sortCol] || '';
-                    const na = parseFloat(va), nb = parseFloat(vb);
-                    let cmp = (!isNaN(na) && !isNaN(nb)) ? na - nb : va.localeCompare(vb);
+                    // Pure numeric comparison only if both values are purely numeric
+                    const na = Number(va), nb = Number(vb);
+                    let cmp = (va.trim() !== '' && vb.trim() !== '' && !isNaN(na) && !isNaN(nb))
+                        ? na - nb : va.localeCompare(vb);
                     return sortAsc ? cmp : -cmp;
                 });
             }
