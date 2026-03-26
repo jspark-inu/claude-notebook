@@ -20,6 +20,7 @@
     const previewDownload = document.getElementById('previewDownload');
     const previewEdit = document.getElementById('previewEdit');
     const previewSave = document.getElementById('previewSave');
+    const previewColorRules = document.getElementById('previewColorRules');
 
     const BASE = window.__VIEWER_BASE || '';
     const XSRF = window.__XSRF_TOKEN || '';
@@ -434,6 +435,7 @@
         finder.style.display = 'none';
         previewEdit.style.display = 'none';
         previewSave.style.display = 'none';
+        previewColorRules.style.display = 'none';
         loadPreviewContent(path);
         updateHash(path);
         const fileName = path.split('/').pop() || path;
@@ -451,6 +453,7 @@
         currentFileData = null;
         previewEdit.style.display = 'none';
         previewSave.style.display = 'none';
+        previewColorRules.style.display = 'none';
         previewEdit.classList.remove('active');
         updateHash(currentPath);
         const folderName = currentPath.split('/').pop() || 'Workspace';
@@ -467,12 +470,15 @@
             isEditing = false;
             previewEdit.classList.remove('active');
             previewSave.style.display = 'none';
+            const isCsv = CSV_EXTS.includes(currentFileData.extension);
+            previewColorRules.style.display = isCsv ? '' : 'none';
             renderPreviewMode(currentFileData);
         } else {
             // Switch to edit
             isEditing = true;
             previewEdit.classList.add('active');
             previewSave.style.display = '';
+            previewColorRules.style.display = 'none';
             renderEditMode(currentFileData);
         }
     });
@@ -509,6 +515,7 @@
     async function renderPreviewMode(data) {
         const isCsv = CSV_EXTS.includes(data.extension);
         previewBody.classList.toggle('csv-mode', isCsv);
+        previewColorRules.style.display = isCsv ? '' : 'none';
         if (isCsv) {
             await loadCsvConfig();
             renderCsvViewer(data.content);
@@ -632,6 +639,7 @@
         if (!csvConfigCache || typeof csvConfigCache !== 'object') csvConfigCache = {};
         if (!csvConfigCache.colWidths) csvConfigCache.colWidths = {};
         if (!csvConfigCache.rowColors) csvConfigCache.rowColors = {};
+        if (!csvConfigCache.colorRules) csvConfigCache.colorRules = {};
         return csvConfigCache;
     }
     function saveCsvConfig() {
@@ -658,7 +666,147 @@
     function loadCsvRowColors(path) {
         return csvConfigCache && csvConfigCache.rowColors ? csvConfigCache.rowColors[path] || null : null;
     }
+    function saveCsvColorRules(path, rules) {
+        if (!csvConfigCache) csvConfigCache = { colWidths: {}, rowColors: {} };
+        if (!csvConfigCache.colorRules) csvConfigCache.colorRules = {};
+        csvConfigCache.colorRules[path] = rules;
+        saveCsvConfig();
+    }
+    function loadCsvColorRules(path) {
+        return csvConfigCache && csvConfigCache.colorRules ? csvConfigCache.colorRules[path] || null : null;
+    }
     const ROW_COLORS = ['none', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+    const RULE_OPS = [
+        { value: 'equals', label: 'equals' },
+        { value: 'contains', label: 'contains' },
+        { value: 'gt', label: '>' },
+        { value: 'lt', label: '<' },
+        { value: 'empty', label: 'is empty' },
+    ];
+
+    function matchColorRule(rule, cellValue) {
+        const val = (cellValue || '').trim();
+        switch (rule.op) {
+            case 'equals': return val.toLowerCase() === rule.value.toLowerCase();
+            case 'contains': return val.toLowerCase().includes(rule.value.toLowerCase());
+            case 'gt': return !isNaN(parseFloat(val)) && parseFloat(val) > parseFloat(rule.value);
+            case 'lt': return !isNaN(parseFloat(val)) && parseFloat(val) < parseFloat(rule.value);
+            case 'empty': return val === '';
+            default: return false;
+        }
+    }
+
+    function getConditionalColor(row, headers, rules) {
+        if (!rules || rules.length === 0) return '';
+        for (const rule of rules) {
+            const colIdx = headers.indexOf(rule.column);
+            if (colIdx < 0) continue;
+            if (matchColorRule(rule, row[colIdx])) return rule.color;
+        }
+        return '';
+    }
+
+    // === Color Rules Modal ===
+    let currentCsvHeaders = [];
+    let currentCsvRenderFn = null;
+
+    function showColorRulesModal(filePath, headers, rowColors, colorRules, onSave) {
+        let rules = JSON.parse(JSON.stringify(colorRules || []));
+        const overlay = document.createElement('div');
+        overlay.className = 'color-rules-overlay';
+
+        function renderModal() {
+            let rulesHtml = '';
+            rules.forEach((rule, i) => {
+                const colOpts = headers.map(h => `<option value="${escHtml(h)}"${rule.column === h ? ' selected' : ''}>${escHtml(h)}</option>`).join('');
+                const opOpts = RULE_OPS.map(o => `<option value="${o.value}"${rule.op === o.value ? ' selected' : ''}>${o.label}</option>`).join('');
+                const colorDots = ROW_COLORS.filter(c => c !== 'none').map(c =>
+                    `<div class="csv-color-dot${rule.color === c ? ' active' : ''}" data-color="${c}" data-rule="${i}"></div>`
+                ).join('');
+                const needsValue = rule.op !== 'empty';
+                rulesHtml += `
+                    <div class="color-rule-row" data-idx="${i}">
+                        <select class="rule-col" data-idx="${i}">${colOpts}</select>
+                        <select class="rule-op" data-idx="${i}">${opOpts}</select>
+                        <input class="rule-val" data-idx="${i}" placeholder="value" value="${escHtml(rule.value || '')}" ${needsValue ? '' : 'style="display:none"'}>
+                        <div class="rule-colors">${colorDots}</div>
+                        <button class="rule-delete" data-idx="${i}" title="Delete">&times;</button>
+                    </div>`;
+            });
+
+            overlay.innerHTML = `
+                <div class="color-rules-modal">
+                    <h3>Color Rules</h3>
+                    <div class="color-rules-list">${rulesHtml || '<div class="color-rules-empty">No rules defined</div>'}</div>
+                    <div class="color-rules-actions">
+                        <button class="color-rules-add">+ Add Rule</button>
+                        <div class="color-rules-reset-group">
+                            <button class="color-rules-reset-manual" title="Reset manual row colors">Reset Manual Colors</button>
+                            <button class="color-rules-reset-rules" title="Remove all rules">Reset Rules</button>
+                        </div>
+                    </div>
+                    <div class="color-rules-buttons">
+                        <button class="color-rules-cancel">Cancel</button>
+                        <button class="color-rules-save">Save</button>
+                    </div>
+                </div>`;
+
+            // Bind events
+            overlay.querySelectorAll('.rule-col').forEach(sel => {
+                sel.addEventListener('change', () => { rules[parseInt(sel.dataset.idx)].column = sel.value; });
+            });
+            overlay.querySelectorAll('.rule-op').forEach(sel => {
+                sel.addEventListener('change', () => {
+                    const idx = parseInt(sel.dataset.idx);
+                    rules[idx].op = sel.value;
+                    const valInput = overlay.querySelector(`.rule-val[data-idx="${idx}"]`);
+                    valInput.style.display = sel.value === 'empty' ? 'none' : '';
+                });
+            });
+            overlay.querySelectorAll('.rule-val').forEach(inp => {
+                inp.addEventListener('input', () => { rules[parseInt(inp.dataset.idx)].value = inp.value; });
+            });
+            overlay.querySelectorAll('.csv-color-dot').forEach(dot => {
+                dot.addEventListener('click', () => {
+                    const idx = parseInt(dot.dataset.rule);
+                    rules[idx].color = dot.dataset.color;
+                    overlay.querySelectorAll(`.csv-color-dot[data-rule="${idx}"]`).forEach(d => d.classList.remove('active'));
+                    dot.classList.add('active');
+                });
+            });
+            overlay.querySelectorAll('.rule-delete').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    rules.splice(parseInt(btn.dataset.idx), 1);
+                    renderModal();
+                });
+            });
+            overlay.querySelector('.color-rules-add').addEventListener('click', () => {
+                rules.push({ column: headers[0] || '', op: 'equals', value: '', color: 'red' });
+                renderModal();
+            });
+            overlay.querySelector('.color-rules-reset-manual').addEventListener('click', () => {
+                if (confirm('Reset all manual row colors?')) {
+                    saveCsvRowColors(filePath, {});
+                    onSave(rules, true);
+                    overlay.remove();
+                }
+            });
+            overlay.querySelector('.color-rules-reset-rules').addEventListener('click', () => {
+                if (confirm('Remove all color rules?')) {
+                    rules = [];
+                    renderModal();
+                }
+            });
+            overlay.querySelector('.color-rules-cancel').addEventListener('click', () => overlay.remove());
+            overlay.querySelector('.color-rules-save').addEventListener('click', () => {
+                onSave(rules, false);
+                overlay.remove();
+            });
+        }
+
+        renderModal();
+        document.body.appendChild(overlay);
+    }
 
     // === CSV Viewer (read-only with sort, filter, color) ===
     function renderCsvViewer(content) {
@@ -679,6 +827,20 @@
 
         // Row colors (keyed by original row index)
         let rowColors = loadCsvRowColors(filePath) || {};
+        // Conditional color rules
+        let colorRules = loadCsvColorRules(filePath) || [];
+
+        // Color rules button handler
+        currentCsvHeaders = headers;
+        currentCsvRenderFn = function() { render(); };
+        previewColorRules.onclick = () => {
+            showColorRulesModal(filePath, headers, rowColors, colorRules, (newRules, resetManual) => {
+                colorRules = newRules;
+                saveCsvColorRules(filePath, colorRules);
+                if (resetManual) rowColors = {};
+                render();
+            });
+        };
 
         function render() {
             let filtered = dataRows.map((row, i) => ({ row, origIdx: i })).filter(({ row }) =>
@@ -710,7 +872,10 @@
             });
             html += '</tr></thead><tbody>';
             filtered.forEach(({ row, origIdx }) => {
-                const color = rowColors[origIdx] || '';
+                // Manual color takes priority over conditional color
+                const manualColor = rowColors[origIdx] || '';
+                const condColor = manualColor && manualColor !== 'none' ? '' : getConditionalColor(row, headers, colorRules);
+                const color = (manualColor && manualColor !== 'none') ? manualColor : condColor;
                 const colorAttr = color && color !== 'none' ? ` data-color="${color}"` : '';
                 html += `<tr${colorAttr} data-orig="${origIdx}">`;
                 headers.forEach((_, ci) => {
