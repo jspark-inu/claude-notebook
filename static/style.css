@@ -912,11 +912,37 @@ html, body {
 }
 .csv-row-actions, .csv-col-actions {
     border: none !important;
-    padding: 0 4px !important;
+    padding: 0 2px !important;
     text-align: center;
-    width: 24px;
-    min-width: 24px;
+    width: 52px;
+    min-width: 52px;
     overflow: visible;
+    white-space: nowrap;
+}
+.csv-move-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 8px;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.15s;
+    vertical-align: middle;
+}
+.csv-move-btn:hover:not([disabled]) {
+    background: var(--text);
+    color: #fff;
+}
+.csv-move-btn[disabled] {
+    opacity: 0.2;
+    cursor: default;
 }
 tr:first-child .csv-row-actions {
     position: sticky;
