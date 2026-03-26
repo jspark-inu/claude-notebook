@@ -1137,10 +1137,9 @@
                     saveCsvColorRules(filePath, rules);
                 } else {
                     checkboxCols.push(ci);
-                    // Initialize non-header cells to "false" if empty
+                    // Initialize all non-header cells to "false"
                     for (let ri = 1; ri < csvEditRows.length; ri++) {
-                        const v = (csvEditRows[ri][ci] || '').toLowerCase();
-                        if (v !== 'true' && v !== 'false') csvEditRows[ri][ci] = 'false';
+                        csvEditRows[ri][ci] = 'false';
                     }
                     // Add default color rules: checked → red, unchecked → none
                     let rules = loadCsvColorRules(filePath) || [];
