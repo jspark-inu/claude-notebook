@@ -4,7 +4,7 @@
 
 Jupyter Notebook 위에 **Notion 스타일 파일 브라우저**와 **터미널 관리 UI**를 추가하는 확장 — Claude Code Remote의 가볍고 셀프 호스팅 가능한 대안으로 설계되었습니다.
 
-> **블로그 글**: [Claude Notebook: Jupyter Notebook를 활용한 셀프 호스팅 Claude Code Remote 대안](https://trustworthyai.co.kr/article/2026/claude-notebook/)
+> **블로그 글**: [English](https://trustworthyai.co.kr/article/2026/claude-notebook-eng/) | [한국어](https://trustworthyai.co.kr/article/2026/claude-notebook/)
 
 ## 빠른 시작
 

@@ -4,7 +4,7 @@
 
 A Jupyter Notebook extension that adds a **Notion-like file browser** and **terminal management UI** — designed as a lightweight, self-hosted alternative to Claude Code Remote.
 
-> **Blog Post**: [Claude Notebook: A Self-Hosted Claude Code Remote Alternative via Jupyter Notebook](https://trustworthyai.co.kr/article/2026/claude-notebook-eng/)
+> **Blog Post**: [English](https://trustworthyai.co.kr/article/2026/claude-notebook-eng/) | [한국어](https://trustworthyai.co.kr/article/2026/claude-notebook/)
 
 ## Quick Start
 
