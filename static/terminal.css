@@ -765,6 +765,87 @@ html, body {
     display: none;
 }
 
+/* Virtual keyboard toggle button (mobile only) */
+.vkb-toggle-btn {
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    width: 32px;
+    min-height: 32px;
+    padding-bottom: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    border: none;
+    transition: background 0.15s, color 0.15s;
+}
+.vkb-toggle-btn:hover { background: var(--sidebar-hover); color: var(--text); }
+.vkb-toggle-btn.active { color: var(--accent); }
+
+/* Virtual keyboard panel */
+.vkb-panel {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--sidebar-bg);
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.vkb-panel.open {
+    display: flex;
+}
+.vkb-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: nowrap;
+    min-width: max-content;
+}
+.vkb-key {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 11px;
+    font-family: 'SFMono-Regular', 'Fira Code', 'Consolas', monospace;
+    padding: 6px 8px;
+    min-width: 36px;
+    min-height: 32px;
+    cursor: pointer;
+    white-space: nowrap;
+    text-align: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.1s, border-color 0.1s;
+    flex-shrink: 0;
+}
+.vkb-key:active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.vkb-fn {
+    min-width: 32px;
+    padding: 6px 5px;
+    font-size: 10px;
+}
+.vkb-mod {
+    font-weight: 600;
+}
+.vkb-mod.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.vkb-arrow {
+    min-width: 36px;
+    font-size: 14px;
+    padding: 4px 8px;
+}
+
 /* Mobile */
 @media (max-width: 768px) {
     .term-sidebar {
@@ -792,5 +873,8 @@ html, body {
     }
     .term-input-bar {
         padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    .vkb-toggle-btn {
+        display: flex;
     }
 }

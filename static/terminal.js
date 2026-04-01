@@ -58,6 +58,8 @@ let termPendingFileList = [];
 const termFileInput = document.getElementById('termFileInput');
 const termPendingFiles = document.getElementById('termPendingFiles');
 const termAttachBtn = document.querySelector('.term-attach-btn');
+const vkbToggleBtn = document.getElementById('vkbToggleBtn');
+const vkbPanel = document.getElementById('vkbPanel');
 
 // Custom scrollbar state
 const scrollbar = document.getElementById('customScrollbar');
@@ -776,6 +778,71 @@ async function uploadPendingFiles(fileList) {
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
+
+// ========== VIRTUAL KEYBOARD (MOBILE) ==========
+
+const vkbModifiers = { ctrl: false, alt: false, shift: false, meta: false };
+
+// ANSI escape sequences for special keys
+const vkbKeyMap = {
+    'Escape': '\x1b',
+    'Tab': '\t',
+    'Enter': '\r',
+    'Backspace': '\x7f',
+    'Delete': '\x1b[3~',
+    'Insert': '\x1b[2~',
+    'Home': '\x1b[H',
+    'End': '\x1b[F',
+    'PageUp': '\x1b[5~',
+    'PageDown': '\x1b[6~',
+    'ArrowUp': '\x1b[A',
+    'ArrowDown': '\x1b[B',
+    'ArrowRight': '\x1b[C',
+    'ArrowLeft': '\x1b[D',
+    'F1': '\x1bOP', 'F2': '\x1bOQ', 'F3': '\x1bOR', 'F4': '\x1bOS',
+    'F5': '\x1b[15~', 'F6': '\x1b[17~', 'F7': '\x1b[18~', 'F8': '\x1b[19~',
+    'F9': '\x1b[20~', 'F10': '\x1b[21~', 'F11': '\x1b[23~', 'F12': '\x1b[24~',
+};
+
+vkbToggleBtn.addEventListener('click', () => {
+    vkbPanel.classList.toggle('open');
+    vkbToggleBtn.classList.toggle('active');
+});
+
+vkbPanel.addEventListener('click', (e) => {
+    const btn = e.target.closest('.vkb-key');
+    if (!btn) return;
+
+    // Handle modifier toggle
+    const mod = btn.dataset.mod;
+    if (mod) {
+        vkbModifiers[mod] = !vkbModifiers[mod];
+        btn.classList.toggle('active', vkbModifiers[mod]);
+        return;
+    }
+
+    // Handle regular key
+    const key = btn.dataset.key;
+    if (!key || !currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+
+    let seq = vkbKeyMap[key] || key;
+
+    // Apply Ctrl modifier: convert character to control code
+    if (vkbModifiers.ctrl && seq.length === 1) {
+        const code = seq.toUpperCase().charCodeAt(0);
+        if (code >= 65 && code <= 90) seq = String.fromCharCode(code - 64);
+    }
+    // Apply Alt modifier: prepend ESC
+    if (vkbModifiers.alt) {
+        seq = '\x1b' + seq;
+    }
+
+    currentWs.send(JSON.stringify(["stdin", seq]));
+
+    // Reset modifiers after key press
+    Object.keys(vkbModifiers).forEach(m => { vkbModifiers[m] = false; });
+    vkbPanel.querySelectorAll('.vkb-mod').forEach(el => el.classList.remove('active'));
+});
 
 // ========== iMESSAGE CHAT ==========
 

@@ -81,12 +81,54 @@
             <div class="chat-view" id="chatView">
                 <div class="chat-messages" id="chatMessages"></div>
             </div>
+            <!-- Virtual Keyboard Panel (mobile only) -->
+            <div class="vkb-panel" id="vkbPanel">
+                <div class="vkb-row">
+                    <button class="vkb-key" data-key="Escape">Esc</button>
+                    <button class="vkb-key vkb-fn" data-key="F1">F1</button>
+                    <button class="vkb-key vkb-fn" data-key="F2">F2</button>
+                    <button class="vkb-key vkb-fn" data-key="F3">F3</button>
+                    <button class="vkb-key vkb-fn" data-key="F4">F4</button>
+                    <button class="vkb-key vkb-fn" data-key="F5">F5</button>
+                    <button class="vkb-key vkb-fn" data-key="F6">F6</button>
+                    <button class="vkb-key vkb-fn" data-key="F7">F7</button>
+                    <button class="vkb-key vkb-fn" data-key="F8">F8</button>
+                    <button class="vkb-key vkb-fn" data-key="F9">F9</button>
+                    <button class="vkb-key vkb-fn" data-key="F10">F10</button>
+                    <button class="vkb-key vkb-fn" data-key="F11">F11</button>
+                    <button class="vkb-key vkb-fn" data-key="F12">F12</button>
+                </div>
+                <div class="vkb-row">
+                    <button class="vkb-key vkb-mod" data-mod="ctrl">Ctrl</button>
+                    <button class="vkb-key vkb-mod" data-mod="alt">Alt</button>
+                    <button class="vkb-key vkb-mod" data-mod="shift">Shift</button>
+                    <button class="vkb-key vkb-mod" data-mod="meta">Meta</button>
+                    <button class="vkb-key" data-key="Tab">Tab</button>
+                    <button class="vkb-key" data-key="Enter">Enter</button>
+                    <button class="vkb-key" data-key="Backspace">Bksp</button>
+                    <button class="vkb-key" data-key="Delete">Del</button>
+                </div>
+                <div class="vkb-row">
+                    <button class="vkb-key" data-key="Insert">Ins</button>
+                    <button class="vkb-key" data-key="Home">Home</button>
+                    <button class="vkb-key" data-key="End">End</button>
+                    <button class="vkb-key" data-key="PageUp">PgUp</button>
+                    <button class="vkb-key" data-key="PageDown">PgDn</button>
+                    <button class="vkb-key vkb-arrow" data-key="ArrowUp">&uarr;</button>
+                    <button class="vkb-key vkb-arrow" data-key="ArrowDown">&darr;</button>
+                    <button class="vkb-key vkb-arrow" data-key="ArrowLeft">&larr;</button>
+                    <button class="vkb-key vkb-arrow" data-key="ArrowRight">&rarr;</button>
+                </div>
+            </div>
             <div class="term-input-bar hidden" id="termInputBar">
                 <div class="input-resize-handle" id="inputResizeHandle"></div>
                 <label class="term-attach-btn" title="Attach file">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
                     <input type="file" id="termFileInput" multiple hidden>
                 </label>
+                <button class="vkb-toggle-btn" id="vkbToggleBtn" title="Virtual keyboard">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><line x1="6" y1="8" x2="6.01" y2="8"/><line x1="10" y1="8" x2="10.01" y2="8"/><line x1="14" y1="8" x2="14.01" y2="8"/><line x1="18" y1="8" x2="18.01" y2="8"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="10" y1="12" x2="10.01" y2="12"/><line x1="14" y1="12" x2="14.01" y2="12"/><line x1="18" y1="12" x2="18.01" y2="12"/><line x1="8" y1="16" x2="16" y2="16"/></svg>
+                </button>
                 <div class="input-wrap">
                     <div class="pending-files" id="termPendingFiles"></div>
                     <textarea class="term-input-field" id="termInputField" placeholder="Type command..." rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
