@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 from tornado import web
@@ -512,6 +513,74 @@ class WorkspaceDownloadHandler(BaseHandler):
         self.finish()
 
 
+# ---------------------------------------------------------------------------
+# Chunked upload (large file support)
+# ---------------------------------------------------------------------------
+
+# In-memory registry of active chunked uploads: upload_id -> {path, fd}
+_chunked_uploads = {}
+
+
+class ChunkedUploadHandler(BaseHandler):
+    """Chunked file upload: init -> append (repeat) -> finalize."""
+
+    @web.authenticated
+    def post(self):
+        """Initialize a chunked upload. Returns an upload_id."""
+        workspace = self.get_workspace()
+        body = json.loads(self.request.body)
+        filename = body.get("filename", "")
+        target_dir = body.get("dir", "")
+        total_size = body.get("size", 0)
+
+        if not filename:
+            raise web.HTTPError(400, "filename required")
+
+        rel = Path(filename)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise web.HTTPError(400, "Invalid filename")
+
+        dest = (workspace / target_dir).resolve() if target_dir else workspace
+        if not str(dest).startswith(str(workspace)):
+            raise web.HTTPError(400, "Invalid dir")
+        file_dest = dest / rel.parent
+        file_dest.mkdir(parents=True, exist_ok=True)
+
+        fpath = unique_filepath(file_dest, rel.name)
+        upload_id = uuid.uuid4().hex
+
+        # Open file for writing
+        fd = open(fpath, "wb")
+        _chunked_uploads[upload_id] = {"path": fpath, "fd": fd, "received": 0, "total": total_size}
+
+        self.json_response({"upload_id": upload_id, "path": str(fpath.relative_to(workspace))})
+
+    @web.authenticated
+    def put(self):
+        """Append a chunk to an active upload."""
+        upload_id = self.get_argument("id", None)
+        if not upload_id or upload_id not in _chunked_uploads:
+            raise web.HTTPError(400, "Invalid upload_id")
+
+        entry = _chunked_uploads[upload_id]
+        chunk = self.request.body
+        entry["fd"].write(chunk)
+        entry["received"] += len(chunk)
+
+        self.json_response({"received": entry["received"], "total": entry["total"]})
+
+    @web.authenticated
+    def delete(self):
+        """Finalize (close) a chunked upload."""
+        upload_id = self.get_argument("id", None)
+        if not upload_id or upload_id not in _chunked_uploads:
+            raise web.HTTPError(400, "Invalid upload_id")
+
+        entry = _chunked_uploads.pop(upload_id)
+        entry["fd"].close()
+        self.json_response({"path": str(entry["path"]), "size": entry["received"]})
+
+
 class TerminalUploadHandler(BaseHandler):
     """Upload file to fixed dir for terminal use, return metadata."""
     @web.authenticated
@@ -585,6 +654,17 @@ def load_jupyter_server_extension(nb_app):
     workspace = Path(nb_app.notebook_dir).resolve()
     nb_app.web_app.settings["claude_notebook_path"] = workspace
 
+    # Allow large file uploads (10 GB)
+    _max_size = 10 * 1024 * 1024 * 1024  # 10 GB
+    nb_app.web_app.settings["websocket_max_message_size"] = _max_size
+    server = getattr(nb_app, 'http_server', None)
+    if server is not None:
+        server.max_body_size = _max_size
+        server.max_buffer_size = _max_size
+    # Also set on the application for new connections
+    nb_app.max_body_size = _max_size
+    nb_app.max_buffer_size = _max_size
+
     # Open new terminals in the workspace directory instead of process cwd
     term_mgr = nb_app.web_app.settings.get('terminal_manager')
     if term_mgr is not None:
@@ -599,6 +679,7 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/api/tree"), WorkspaceTreeHandler),
         (ujoin(base_url, r"/claude-notebook/api/file"), WorkspaceFileHandler),
         (ujoin(base_url, r"/claude-notebook/api/upload"), WorkspaceUploadHandler),
+        (ujoin(base_url, r"/claude-notebook/api/upload-chunk"), ChunkedUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/save"), WorkspaceSaveHandler),
         (ujoin(base_url, r"/claude-notebook/api/delete"), WorkspaceDeleteHandler),
         (ujoin(base_url, r"/claude-notebook/api/mkdir"), WorkspaceMkdirHandler),

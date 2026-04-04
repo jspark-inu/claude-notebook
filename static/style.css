@@ -351,6 +351,48 @@ html, body {
 .finder.dragover .finder-grid {
     min-height: 120px;
 }
+/* Upload progress bar */
+.upload-progress-bar {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 8px 16px 10px;
+    z-index: 50;
+}
+.upload-progress-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+.upload-progress-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 70%;
+}
+.upload-progress-pct {
+    font-weight: 600;
+    color: var(--text);
+}
+.upload-progress-track {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.upload-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.2s ease;
+}
+
 /* Context menu */
 .finder-context {
     position: fixed;

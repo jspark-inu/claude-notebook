@@ -331,6 +331,37 @@
     }
 
     // === Upload ===
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB per chunk
+    const CHUNKED_THRESHOLD = 50 * 1024 * 1024; // Use chunked for files > 50 MB
+
+    // Progress bar container (appended to finder)
+    const uploadProgressBar = document.createElement('div');
+    uploadProgressBar.className = 'upload-progress-bar';
+    uploadProgressBar.innerHTML = `
+        <div class="upload-progress-info">
+            <span class="upload-progress-label"></span>
+            <span class="upload-progress-pct"></span>
+        </div>
+        <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+    `;
+    uploadProgressBar.style.display = 'none';
+    finder.appendChild(uploadProgressBar);
+
+    const uploadLabel = uploadProgressBar.querySelector('.upload-progress-label');
+    const uploadPct = uploadProgressBar.querySelector('.upload-progress-pct');
+    const uploadFill = uploadProgressBar.querySelector('.upload-progress-fill');
+
+    function showUploadProgress(filename, pct) {
+        uploadProgressBar.style.display = '';
+        uploadLabel.textContent = filename;
+        uploadPct.textContent = pct < 100 ? `${pct}%` : 'Done';
+        uploadFill.style.width = pct + '%';
+    }
+    function hideUploadProgress() {
+        uploadProgressBar.style.display = 'none';
+        uploadFill.style.width = '0%';
+    }
+
     finderUpload.addEventListener('change', async () => {
         const files = finderUpload.files;
         if (!files.length) return;
@@ -339,19 +370,91 @@
         finderUpload.value = '';
     });
 
-    async function uploadFiles(filesWithPaths, targetDir) {
-        const form = new FormData();
-        for (const { file, relativePath } of filesWithPaths) {
-            form.append('file', file, relativePath || file.name);
+    async function uploadFileChunked(file, filename, targetDir) {
+        // 1. Init
+        const initRes = await fetch(`${BASE}/api/upload-chunk`, mutFetchOpts({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-XSRFToken': XSRF },
+            body: JSON.stringify({ filename, dir: targetDir || '', size: file.size }),
+        }));
+        if (!initRes.ok) throw new Error(await initRes.text());
+        const { upload_id } = await initRes.json();
+
+        // 2. Send chunks
+        let offset = 0;
+        while (offset < file.size) {
+            const end = Math.min(offset + CHUNK_SIZE, file.size);
+            const chunk = file.slice(offset, end);
+            const putRes = await fetch(`${BASE}/api/upload-chunk?id=${encodeURIComponent(upload_id)}`, mutFetchOpts({
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/octet-stream', 'X-XSRFToken': XSRF },
+                body: chunk,
+            }));
+            if (!putRes.ok) throw new Error(await putRes.text());
+            offset = end;
+            const pct = Math.round((offset / file.size) * 100);
+            showUploadProgress(filename, pct);
         }
+
+        // 3. Finalize
+        const finRes = await fetch(`${BASE}/api/upload-chunk?id=${encodeURIComponent(upload_id)}`, mutFetchOpts({
+            method: 'DELETE',
+        }));
+        if (!finRes.ok) throw new Error(await finRes.text());
+    }
+
+    async function uploadFiles(filesWithPaths, targetDir) {
+        const totalSize = filesWithPaths.reduce((s, f) => s + f.file.size, 0);
+        const useChunked = filesWithPaths.some(f => f.file.size > CHUNKED_THRESHOLD);
+
         try {
-            const url = `${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}`;
-            const res = await fetch(url, mutFetchOpts({ method: 'POST', body: form }));
-            if (!res.ok) throw new Error(await res.text());
+            if (useChunked) {
+                // Upload each file via chunked API
+                let uploaded = 0;
+                for (const { file, relativePath } of filesWithPaths) {
+                    const fname = relativePath || file.name;
+                    if (file.size > CHUNKED_THRESHOLD) {
+                        await uploadFileChunked(file, fname, targetDir);
+                    } else {
+                        // Small files: still use normal upload
+                        const form = new FormData();
+                        form.append('file', file, fname);
+                        const res = await fetch(`${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}`, mutFetchOpts({ method: 'POST', body: form }));
+                        if (!res.ok) throw new Error(await res.text());
+                    }
+                    uploaded++;
+                    showUploadProgress(`${uploaded}/${filesWithPaths.length} files`, Math.round((uploaded / filesWithPaths.length) * 100));
+                }
+            } else {
+                // Small files: single request with XHR for progress
+                const form = new FormData();
+                for (const { file, relativePath } of filesWithPaths) {
+                    form.append('file', file, relativePath || file.name);
+                }
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', `${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}`);
+                    xhr.withCredentials = true;
+                    xhr.setRequestHeader('X-XSRFToken', XSRF);
+                    xhr.setRequestHeader('ngrok-skip-browser-warning', '1');
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            const pct = Math.round((e.loaded / e.total) * 100);
+                            const label = filesWithPaths.length === 1 ? filesWithPaths[0].file.name : `${filesWithPaths.length} files`;
+                            showUploadProgress(label, pct);
+                        }
+                    };
+                    xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(xhr.responseText));
+                    xhr.onerror = () => reject(new Error('Network error'));
+                    xhr.send(form);
+                });
+            }
             loadFinderGrid(currentFinderPath);
             loadTree();
         } catch (err) {
             alert('Upload failed: ' + err.message);
+        } finally {
+            setTimeout(hideUploadProgress, 1500);
         }
     }
 
