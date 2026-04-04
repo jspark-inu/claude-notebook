@@ -11,7 +11,7 @@ A Jupyter Notebook extension that adds a **Notion-like file browser** and **term
 ```bash
 Install Git
 Install Claude Code
-Ask your Claude Code to install "https://github.com/Harry24k/claude-notebook/" from the address below
+Ask your Claude Code to follow "https://github.com/Harry24k/claude-notebook/" and open jupyter notebook with claude-notebook.
 ```
 
 Then visit `http://localhost:8888/claude-notebook` in your browser.
