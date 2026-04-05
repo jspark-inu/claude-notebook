@@ -3,12 +3,17 @@
 import json
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 
 from tornado import web
+from tornado.ioloop import IOLoop
 from notebook.utils import url_path_join as ujoin
 from notebook.base.handlers import IPythonHandler
+
+# Max text file size to serve inline (10 MB); larger files get a too-large hint
+_MAX_TEXT_PREVIEW = 10 * 1024 * 1024
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
@@ -334,7 +339,7 @@ class WorkspaceTreeHandler(BaseHandler):
 
 class WorkspaceFileHandler(BaseHandler):
     @web.authenticated
-    def get(self):
+    async def get(self):
         workspace = self.get_workspace()
         file_path = self.get_argument("path", None)
         raw_mode = self.get_argument("raw", None)
@@ -342,30 +347,36 @@ class WorkspaceFileHandler(BaseHandler):
         if not full_path.is_file():
             raise web.HTTPError(404, "Not found: %s" % file_path)
         ext = full_path.suffix.lower()
+        file_size = full_path.stat().st_size
 
-        # Image or raw mode: serve as binary
+        # Image or raw mode: stream as binary
         if raw_mode is not None or ext in IMAGE_CONTENT_TYPES:
-            try:
-                data = full_path.read_bytes()
-            except Exception as e:
-                raise web.HTTPError(500, "Read error: %s" % str(e))
             ct = IMAGE_CONTENT_TYPES.get(ext, 'application/octet-stream')
             self.set_header("Content-Type", ct)
-            self.set_header("Content-Length", str(len(data)))
+            self.set_header("Content-Length", str(file_size))
             self.set_header("Cache-Control", "public, max-age=3600")
-            self.write(data)
-            self.finish()
+            await self._stream_file(full_path)
+            return
+
+        # Text file: check size limit
+        if file_size > _MAX_TEXT_PREVIEW:
+            self.json_response({
+                "path": file_path,
+                "name": full_path.name,
+                "content": None,
+                "extension": ext,
+                "too_large": True,
+                "size": file_size,
+            })
             return
 
         try:
             content = full_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
-            # Binary file that's not in IMAGE_CONTENT_TYPES — serve raw
-            data = full_path.read_bytes()
+            # Binary file — stream it
             self.set_header("Content-Type", "application/octet-stream")
-            self.set_header("Content-Length", str(len(data)))
-            self.write(data)
-            self.finish()
+            self.set_header("Content-Length", str(file_size))
+            await self._stream_file(full_path)
             return
         except Exception as e:
             raise web.HTTPError(500, str(e))
@@ -376,6 +387,18 @@ class WorkspaceFileHandler(BaseHandler):
             "content": content,
             "extension": ext,
         })
+
+    async def _stream_file(self, full_path):
+        """Stream a file in 4 MB chunks."""
+        chunk_size = 4 * 1024 * 1024
+        with open(full_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                self.write(chunk)
+                await self.flush()
+        self.finish()
 
 
 class WorkspaceUploadHandler(BaseHandler):
@@ -524,8 +547,26 @@ class WorkspaceDownloadHandler(BaseHandler):
 # Chunked upload (large file support)
 # ---------------------------------------------------------------------------
 
-# In-memory registry of active chunked uploads: upload_id -> {path, fd}
+# In-memory registry of active chunked uploads: upload_id -> {path, fd, received, total, created}
 _chunked_uploads = {}
+_CHUNKED_UPLOAD_TTL = 600  # 10 minutes
+
+
+def _cleanup_stale_uploads():
+    """Close and remove chunked uploads older than TTL."""
+    now = time.time()
+    stale = [uid for uid, e in _chunked_uploads.items() if now - e["created"] > _CHUNKED_UPLOAD_TTL]
+    for uid in stale:
+        entry = _chunked_uploads.pop(uid)
+        try:
+            entry["fd"].close()
+        except Exception:
+            pass
+        # Remove incomplete file
+        try:
+            entry["path"].unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 class ChunkedUploadHandler(BaseHandler):
@@ -534,6 +575,7 @@ class ChunkedUploadHandler(BaseHandler):
     @web.authenticated
     def post(self):
         """Initialize a chunked upload. Returns an upload_id."""
+        _cleanup_stale_uploads()
         workspace = self.get_workspace()
         body = json.loads(self.request.body)
         filename = body.get("filename", "")
@@ -556,9 +598,11 @@ class ChunkedUploadHandler(BaseHandler):
         fpath = unique_filepath(file_dest, rel.name)
         upload_id = uuid.uuid4().hex
 
-        # Open file for writing
         fd = open(fpath, "wb")
-        _chunked_uploads[upload_id] = {"path": fpath, "fd": fd, "received": 0, "total": total_size}
+        _chunked_uploads[upload_id] = {
+            "path": fpath, "fd": fd, "received": 0,
+            "total": total_size, "created": time.time(),
+        }
 
         self.json_response({"upload_id": upload_id, "path": str(fpath.relative_to(workspace))})
 
@@ -578,14 +622,22 @@ class ChunkedUploadHandler(BaseHandler):
 
     @web.authenticated
     def delete(self):
-        """Finalize (close) a chunked upload."""
+        """Finalize (close) or cancel a chunked upload."""
         upload_id = self.get_argument("id", None)
+        cancel = self.get_argument("cancel", None)
         if not upload_id or upload_id not in _chunked_uploads:
             raise web.HTTPError(400, "Invalid upload_id")
 
         entry = _chunked_uploads.pop(upload_id)
         entry["fd"].close()
-        self.json_response({"path": str(entry["path"]), "size": entry["received"]})
+        if cancel:
+            try:
+                entry["path"].unlink(missing_ok=True)
+            except Exception:
+                pass
+            self.json_response({"cancelled": True})
+        else:
+            self.json_response({"path": str(entry["path"]), "size": entry["received"]})
 
 
 class TerminalUploadHandler(BaseHandler):

@@ -349,6 +349,7 @@
         <div class="upload-progress-info">
             <span class="upload-progress-label"></span>
             <span class="upload-progress-pct"></span>
+            <button class="upload-cancel-btn" title="Cancel">&times;</button>
         </div>
         <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
     `;
@@ -358,16 +359,29 @@
     const uploadLabel = uploadProgressBar.querySelector('.upload-progress-label');
     const uploadPct = uploadProgressBar.querySelector('.upload-progress-pct');
     const uploadFill = uploadProgressBar.querySelector('.upload-progress-fill');
+    const uploadCancelBtn = uploadProgressBar.querySelector('.upload-cancel-btn');
+
+    let uploadAborted = false;
+    let activeUploadId = null; // current chunked upload_id for cancel cleanup
+    let activeXhr = null; // current XHR for non-chunked cancel
+
+    uploadCancelBtn.addEventListener('click', () => {
+        uploadAborted = true;
+        if (activeXhr) { activeXhr.abort(); activeXhr = null; }
+    });
 
     function showUploadProgress(label, pct) {
         uploadProgressBar.style.display = '';
         uploadLabel.textContent = label;
         uploadPct.textContent = pct < 100 ? `${pct}%` : 'Done';
         uploadFill.style.width = pct + '%';
+        uploadCancelBtn.style.display = pct < 100 ? '' : 'none';
     }
     function hideUploadProgress() {
         uploadProgressBar.style.display = 'none';
         uploadFill.style.width = '0%';
+        activeUploadId = null;
+        activeXhr = null;
     }
 
     finderUpload.addEventListener('change', async () => {
@@ -400,10 +414,16 @@
         }));
         if (!initRes.ok) throw new Error(await initRes.text());
         const { upload_id } = await initRes.json();
+        activeUploadId = upload_id;
 
         // 2. Send chunks with retry
         let offset = 0;
         while (offset < file.size) {
+            if (uploadAborted) {
+                // Cancel on server — delete incomplete file
+                await fetch(`${BASE}/api/upload-chunk?id=${encodeURIComponent(upload_id)}&cancel=1`, mutFetchOpts({ method: 'DELETE' })).catch(() => {});
+                throw new Error('Upload cancelled');
+            }
             const end = Math.min(offset + CHUNK_SIZE, file.size);
             const chunk = file.slice(offset, end);
             await sendChunkWithRetry(
@@ -416,6 +436,7 @@
         }
 
         // 3. Finalize
+        activeUploadId = null;
         const finRes = await fetch(`${BASE}/api/upload-chunk?id=${encodeURIComponent(upload_id)}`, mutFetchOpts({ method: 'DELETE' }));
         if (!finRes.ok) throw new Error(await finRes.text());
     }
@@ -423,11 +444,13 @@
     async function uploadFiles(filesWithPaths, targetDir) {
         const totalSize = filesWithPaths.reduce((s, f) => s + f.file.size, 0);
         const useChunked = filesWithPaths.some(f => f.file.size > CHUNKED_THRESHOLD);
+        uploadAborted = false;
 
         try {
             if (useChunked) {
                 let bytesSent = 0;
                 for (const { file, relativePath } of filesWithPaths) {
+                    if (uploadAborted) throw new Error('Upload cancelled');
                     const fname = relativePath || file.name;
                     if (file.size > CHUNKED_THRESHOLD) {
                         const baseBytes = bytesSent;
@@ -454,6 +477,7 @@
                 }
                 await new Promise((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
+                    activeXhr = xhr;
                     xhr.open('POST', `${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}`);
                     xhr.withCredentials = true;
                     xhr.setRequestHeader('X-XSRFToken', XSRF);
@@ -464,15 +488,16 @@
                             showUploadProgress(`${formatSize(e.loaded)} / ${formatSize(e.total)}`, pct);
                         }
                     };
-                    xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(xhr.responseText));
-                    xhr.onerror = () => reject(new Error('Network error'));
+                    xhr.onload = () => { activeXhr = null; xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(xhr.responseText)); };
+                    xhr.onerror = () => { activeXhr = null; reject(new Error('Network error')); };
+                    xhr.onabort = () => { activeXhr = null; reject(new Error('Upload cancelled')); };
                     xhr.send(form);
                 });
             }
             loadFinderGrid(currentFinderPath);
             loadTree();
         } catch (err) {
-            alert('Upload failed: ' + err.message);
+            if (err.message !== 'Upload cancelled') alert('Upload failed: ' + err.message);
         } finally {
             setTimeout(hideUploadProgress, 1500);
         }
@@ -695,6 +720,19 @@
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             currentFileData = data;
+
+            // File too large for inline preview — offer download
+            if (data.too_large) {
+                previewEdit.style.display = 'none';
+                previewBody.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-secondary);">
+                    <p style="font-size:48px;margin-bottom:12px;">📦</p>
+                    <p><strong>${escHtml(data.name)}</strong></p>
+                    <p style="margin:8px 0;">${formatSize(data.size)} — too large to preview</p>
+                    <a href="${BASE}/api/download?path=${encodeURIComponent(path)}"
+                       style="display:inline-block;margin-top:12px;padding:8px 20px;background:var(--accent);color:#fff;border-radius:6px;text-decoration:none;">Download</a>
+                </div>`;
+                return;
+            }
 
             // Show edit button for editable files
             if (EDITABLE_EXTS.includes(data.extension)) {

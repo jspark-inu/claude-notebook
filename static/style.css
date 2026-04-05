@@ -379,6 +379,19 @@ html, body {
     font-weight: 600;
     color: var(--text);
 }
+.upload-cancel-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    margin-left: 6px;
+}
+.upload-cancel-btn:hover {
+    color: #e03e3e;
+}
 .upload-progress-track {
     height: 6px;
     background: var(--border);
