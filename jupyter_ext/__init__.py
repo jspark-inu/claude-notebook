@@ -495,9 +495,9 @@ class WorkspaceRenameHandler(BaseHandler):
 
 
 class WorkspaceDownloadHandler(BaseHandler):
-    """Download a file as attachment."""
+    """Download a file as attachment (streaming for large files)."""
     @web.authenticated
-    def get(self):
+    async def get(self):
         workspace = self.get_workspace()
         file_path = self.get_argument("path", None)
         if not file_path or not is_safe_path(workspace, file_path):
@@ -505,11 +505,18 @@ class WorkspaceDownloadHandler(BaseHandler):
         full_path = (workspace / file_path).resolve()
         if not full_path.is_file():
             raise web.HTTPError(404, "Not found")
-        data = full_path.read_bytes()
+        file_size = full_path.stat().st_size
         self.set_header("Content-Type", "application/octet-stream")
         self.set_header("Content-Disposition", f'attachment; filename="{full_path.name}"')
-        self.set_header("Content-Length", str(len(data)))
-        self.write(data)
+        self.set_header("Content-Length", str(file_size))
+        chunk_size = 4 * 1024 * 1024  # 4 MB
+        with open(full_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                self.write(chunk)
+                await self.flush()
         self.finish()
 
 
