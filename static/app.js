@@ -334,6 +334,7 @@
     const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB per chunk
     const CHUNKED_THRESHOLD = 50 * 1024 * 1024; // Use chunked for files > 50 MB
     const CHUNK_MAX_RETRIES = 3;
+    const MAX_UPLOAD_FILES = 100000; // Max files per upload to prevent browser crash
 
     function formatSize(bytes) {
         if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + ' GB';
@@ -525,9 +526,11 @@
     }
 
     // Recursively collect files from a DataTransferItem entry
-    function readEntryRecursive(entry) {
+    function readEntryRecursive(entry, counter) {
         return new Promise((resolve) => {
+            if (counter.count > MAX_UPLOAD_FILES) return resolve([]);
             if (entry.isFile) {
+                counter.count++;
                 entry.file(
                     (f) => resolve([{ file: f, relativePath: entry.fullPath.replace(/^\//, '') }]),
                     () => resolve([]) // error: skip unreadable file
@@ -542,7 +545,8 @@
                             if (entries.length === 0) {
                                 const results = [];
                                 for (const e of allEntries) {
-                                    results.push(...await readEntryRecursive(e));
+                                    if (counter.count > MAX_UPLOAD_FILES) break;
+                                    results.push(...await readEntryRecursive(e, counter));
                                 }
                                 // If empty folder, add placeholder so server creates the directory
                                 if (results.length === 0) {
@@ -568,9 +572,14 @@
         const items = dataTransfer.items;
         if (items && items.length && items[0].webkitGetAsEntry) {
             const allFiles = [];
+            const counter = { count: 0 };
             for (let i = 0; i < items.length; i++) {
                 const entry = items[i].webkitGetAsEntry();
-                if (entry) allFiles.push(...await readEntryRecursive(entry));
+                if (entry) allFiles.push(...await readEntryRecursive(entry, counter));
+                if (counter.count > MAX_UPLOAD_FILES) {
+                    alert(`파일 수가 ${counter.count.toLocaleString()}개를 초과했습니다.\n브라우저 업로드는 최대 ${MAX_UPLOAD_FILES.toLocaleString()}개까지 지원됩니다.\n대용량 폴더는 서버에서 직접 복사해주세요.`);
+                    return [];
+                }
             }
             return allFiles;
         }
