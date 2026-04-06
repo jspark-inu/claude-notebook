@@ -2118,20 +2118,36 @@
             html += '<div class="dt-summary">';
             html += '<div class="dt-summary-title">인원별 일정</div>';
             people.forEach(p => {
+                // Collect events per day for this person
                 const personEvents = [];
                 for (let d = 1; d <= daysInMonth; d++) {
-                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const dateStr = dtMakeDateStr(d);
                     const evts = (_datetableData.events[dateStr] || []).filter(ev => ev.person === p.name);
-                    evts.forEach(ev => personEvents.push({ date: dateStr, day: d, reason: ev.reason }));
+                    evts.forEach(ev => personEvents.push({ day: d, reason: ev.reason }));
                 }
+                // Group consecutive days with same reason into runs
+                const runs = [];
+                let curRun = null;
+                personEvents.forEach(ev => {
+                    if (curRun && ev.reason === curRun.reason && ev.day === curRun.endDay + 1) {
+                        curRun.endDay = ev.day;
+                        curRun.count++;
+                    } else {
+                        if (curRun) runs.push(curRun);
+                        curRun = { startDay: ev.day, endDay: ev.day, reason: ev.reason, count: 1 };
+                    }
+                });
+                if (curRun) runs.push(curRun);
+                const totalDays = personEvents.length;
                 html += `<div class="dt-summary-person">`;
-                html += `<div class="dt-summary-name" style="border-left:4px solid ${p.color};padding-left:8px;">${escHtml(p.name)} <span class="dt-summary-count">(${personEvents.length}건)</span></div>`;
-                if (personEvents.length === 0) {
+                html += `<div class="dt-summary-name" style="border-left:4px solid ${p.color};padding-left:8px;">${escHtml(p.name)} <span class="dt-summary-count">(${totalDays}일)</span></div>`;
+                if (runs.length === 0) {
                     html += `<div class="dt-summary-empty">이번 달 일정 없음</div>`;
                 } else {
                     html += '<div class="dt-summary-list">';
-                    personEvents.forEach(ev => {
-                        html += `<div class="dt-summary-item"><span class="dt-summary-date">${ev.day}일</span> ${escHtml(ev.reason || '-')}</div>`;
+                    runs.forEach(r => {
+                        const dateLabel = r.startDay === r.endDay ? `${r.startDay}일` : `${r.startDay}~${r.endDay}일`;
+                        html += `<div class="dt-summary-item"><span class="dt-summary-date">${dateLabel}</span> ${escHtml(r.reason || '-')}</div>`;
                     });
                     html += '</div>';
                 }
