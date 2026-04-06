@@ -2006,11 +2006,63 @@
             html += `<div class="${cls}">${d}</div>`;
         });
 
+        // Pre-process: detect consecutive event runs
+        // A run = same person + same reason on consecutive days
+        function dtMakeDateStr(d) {
+            return `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+        // Build a map: dateStr → [{person, reason, runPos, runStart, runEnd}]
+        // runPos: 'single' | 'start' | 'mid' | 'end'
+        const dtRunMap = {};
+        // Collect all unique (person, reason) pairs across the month
+        const seenPairs = new Set();
+        for (let d = 1; d <= daysInMonth; d++) {
+            const ds = dtMakeDateStr(d);
+            (_datetableData.events[ds] || []).forEach(ev => seenPairs.add(ev.person + '|||' + ev.reason));
+        }
+        // For each pair, find consecutive runs
+        seenPairs.forEach(pairKey => {
+            const [person, reason] = pairKey.split('|||');
+            let runStartDay = null;
+            for (let d = 1; d <= daysInMonth + 1; d++) {
+                const ds = d <= daysInMonth ? dtMakeDateStr(d) : null;
+                const hasEvent = ds && (_datetableData.events[ds] || []).some(ev => ev.person === person && ev.reason === reason);
+                if (hasEvent) {
+                    if (runStartDay === null) runStartDay = d;
+                } else {
+                    if (runStartDay !== null) {
+                        const runEndDay = d - 1;
+                        const runLen = runEndDay - runStartDay + 1;
+                        for (let rd = runStartDay; rd <= runEndDay; rd++) {
+                            const rds = dtMakeDateStr(rd);
+                            if (!dtRunMap[rds]) dtRunMap[rds] = [];
+                            let pos = 'single';
+                            if (runLen > 1) {
+                                if (rd === runStartDay) pos = 'start';
+                                else if (rd === runEndDay) pos = 'end';
+                                else pos = 'mid';
+                            }
+                            // Check week boundaries: if start of week (Sun) and not run start → treat as 'start' visually
+                            const dow = (startDow + rd - 1) % 7;
+                            const nextDow = rd < runEndDay ? (startDow + rd) % 7 : -1;
+                            let visualPos = pos;
+                            if (pos === 'mid' && dow === 0) visualPos = 'week-start';
+                            else if (pos === 'mid' && dow === 6) visualPos = 'week-end';
+                            else if (pos === 'start' && dow === 6) visualPos = 'start-end-row';
+                            else if (pos === 'end' && dow === 0) visualPos = 'start-end-row';
+                            dtRunMap[rds].push({ person, reason, pos, visualPos, runLen, runStart: runStartDay, runEnd: runEndDay });
+                        }
+                        runStartDay = null;
+                    }
+                }
+            }
+        });
+
         // Empty cells before first day
         for (let i = 0; i < startDow; i++) html += '<div class="dt-cell dt-empty"></div>';
 
         for (let d = 1; d <= daysInMonth; d++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const dateStr = dtMakeDateStr(d);
             const dow = (startDow + d - 1) % 7;
             const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
             let cls = 'dt-cell';
@@ -2022,10 +2074,34 @@
             html += `<div class="${cls}" data-date="${dateStr}" data-day="${d}">`;
             html += `<div class="dt-date-num">${d}</div>`;
             html += '<div class="dt-events">';
+
+            // Render events with run-awareness
+            const rendered = new Set(); // track rendered (person|||reason) to avoid duplicates from run processing
             events.forEach((ev, ei) => {
+                const pairKey = ev.person + '|||' + ev.reason;
+                if (rendered.has(pairKey)) return;
+                rendered.add(pairKey);
                 const person = people.find(p => p.name === ev.person);
                 const color = person ? person.color : '#999';
-                html += `<div class="dt-event" style="background:${color}20;border-left:3px solid ${color}" data-date="${dateStr}" data-eidx="${ei}">${escHtml(ev.person)}(${escHtml(ev.reason)})</div>`;
+                const runInfo = (dtRunMap[dateStr] || []).find(r => r.person === ev.person && r.reason === ev.reason);
+                let evCls = 'dt-event';
+                let showLabel = true;
+                if (runInfo && runInfo.runLen > 1) {
+                    const vp = runInfo.visualPos;
+                    const pos = runInfo.pos;
+                    if (pos === 'start') {
+                        evCls += dow === 6 ? ' dt-ev-single' : ' dt-ev-start';
+                    } else if (pos === 'end') {
+                        evCls += dow === 0 ? ' dt-ev-single' : ' dt-ev-end';
+                        showLabel = dow === 0; // show label at row start
+                    } else if (pos === 'mid') {
+                        if (dow === 0) { evCls += ' dt-ev-start'; showLabel = true; }
+                        else if (dow === 6) { evCls += ' dt-ev-end'; showLabel = false; }
+                        else { evCls += ' dt-ev-mid'; showLabel = false; }
+                    }
+                }
+                const label = showLabel ? `${escHtml(ev.person)}(${escHtml(ev.reason)})` : '';
+                html += `<div class="${evCls}" style="background:${color}20;border-color:${color}" data-date="${dateStr}" data-eidx="${ei}">${label}</div>`;
             });
             html += '</div></div>';
         }
