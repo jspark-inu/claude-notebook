@@ -477,6 +477,25 @@ class WorkspaceSaveHandler(BaseHandler):
         self.json_response({"saved": file_path})
 
 
+class WorkspaceNewFileHandler(BaseHandler):
+    """Create a new empty file in the workspace."""
+    @web.authenticated
+    def post(self):
+        body = json.loads(self.request.body)
+        file_path = body.get("path")
+        if not file_path:
+            raise web.HTTPError(400, "path required")
+        full_path = self.validate_path(file_path)
+        if full_path.exists():
+            raise web.HTTPError(409, "Already exists: %s" % file_path)
+        try:
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.touch()
+        except OSError as e:
+            raise web.HTTPError(500, "File creation error: %s" % str(e))
+        self.json_response({"created": file_path})
+
+
 class WorkspaceMkdirHandler(BaseHandler):
     """Create a new folder in the workspace."""
     @web.authenticated
@@ -772,6 +791,7 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/api/upload-chunk"), ChunkedUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/save"), WorkspaceSaveHandler),
         (ujoin(base_url, r"/claude-notebook/api/delete"), WorkspaceDeleteHandler),
+        (ujoin(base_url, r"/claude-notebook/api/newfile"), WorkspaceNewFileHandler),
         (ujoin(base_url, r"/claude-notebook/api/mkdir"), WorkspaceMkdirHandler),
         (ujoin(base_url, r"/claude-notebook/api/rename"), WorkspaceRenameHandler),
         (ujoin(base_url, r"/claude-notebook/api/download"), WorkspaceDownloadHandler),

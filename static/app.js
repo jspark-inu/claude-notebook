@@ -295,6 +295,25 @@
         }
     }
 
+    // === New File ===
+    document.getElementById('newFileBtn').addEventListener('click', async () => {
+        const name = prompt('New file name (e.g. note.md):');
+        if (!name || !name.trim()) return;
+        const filePath = currentFinderPath ? currentFinderPath + '/' + name.trim() : name.trim();
+        try {
+            const res = await fetch(`${BASE}/api/newfile`, mutFetchOpts({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-XSRFToken': XSRF },
+                body: JSON.stringify({ path: filePath }),
+            }));
+            if (!res.ok) throw new Error(await res.text());
+            loadFinderGrid(currentFinderPath);
+            loadTree();
+        } catch (err) {
+            alert('Failed to create file: ' + err.message);
+        }
+    });
+
     // === New Folder ===
     document.getElementById('newFolderBtn').addEventListener('click', async () => {
         const name = prompt('New folder name:');
