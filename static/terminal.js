@@ -860,7 +860,7 @@ function openChat() {
     chatSnapshotTimer = setInterval(() => {
         if (phase === 'idle') snapshotBuffer();
     }, 500);
-    termInputField.focus();
+    termInputField.focus({ preventScroll: true });
 }
 
 function closeChat() {
@@ -1335,37 +1335,56 @@ scrollbar.addEventListener('click', (e) => {
 setInterval(updateScrollbar, 200);
 
 // ========== KEYBOARD SCROLL PREVENTION ==========
-// Prevent body scroll when virtual keyboard appears.
-// Uses visualViewport to resize layout dynamically instead of
-// fighting scroll position with scrollTo(0,0).
+// When the virtual keyboard opens, browsers scroll the focused element
+// into view. Since our layout is position:fixed and uses flex, this
+// body-level scroll is unwanted — it shifts the entire UI upward.
+//
+// Strategy:
+// 1. Kill any body scroll instantly (scroll event).
+// 2. On focus, use preventScroll and force scroll back.
+// 3. Use visualViewport to resize layout to visible area.
 
 (function initKeyboardGuard() {
-    // Prevent any body-level scroll unconditionally
-    window.addEventListener('scroll', () => {
-        if (window.scrollX !== 0 || window.scrollY !== 0) {
-            window.scrollTo(0, 0);
-        }
-    }, { passive: false });
+    const layout = document.querySelector('.layout');
 
-    // On mobile, use visualViewport to shrink layout to visible area
-    // so the keyboard doesn't push content off-screen.
+    // --- 1. Unconditionally pin body at (0,0) ---
+    function pinScroll() {
+        window.scrollTo(0, 0);
+        document.body.scrollTop = 0;
+        document.documentElement.scrollTop = 0;
+    }
+    window.addEventListener('scroll', pinScroll, { passive: true });
+
+    // --- 2. Intercept focus on inputs to suppress auto-scroll ---
+    document.addEventListener('focus', (e) => {
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') {
+            // Immediately undo any scroll the browser did
+            requestAnimationFrame(pinScroll);
+            // Belt-and-suspenders: pin again after keyboard animation
+            setTimeout(pinScroll, 50);
+            setTimeout(pinScroll, 150);
+            setTimeout(pinScroll, 300);
+        }
+    }, true); // capture phase — fires before browser scrolls
+
+    // --- 3. VisualViewport layout adjustment ---
     if (window.visualViewport) {
-        const layout = document.querySelector('.layout');
         const vv = window.visualViewport;
+        let prevH = vv.height;
         let rafId = null;
 
         function adjustLayout() {
             rafId = null;
-            // Set layout height to the visual viewport (excludes keyboard)
-            const h = vv.height;
+            const h = Math.round(vv.height);
             if (layout) layout.style.height = h + 'px';
-            // Ensure no body offset from viewport scroll
-            document.documentElement.style.transform = `translateY(${vv.offsetTop}px)`;
+            pinScroll();
         }
 
         vv.addEventListener('resize', () => {
             if (!rafId) rafId = requestAnimationFrame(adjustLayout);
         });
+        // Also listen for scroll (iOS shifts viewport when keyboard appears)
         vv.addEventListener('scroll', () => {
             if (!rafId) rafId = requestAnimationFrame(adjustLayout);
         });

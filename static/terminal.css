@@ -30,7 +30,6 @@ html, body {
     inset: 0;
     width: 100%;
     overscroll-behavior: none;
-    touch-action: none;
 }
 
 /* Layout */
