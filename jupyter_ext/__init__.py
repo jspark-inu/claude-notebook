@@ -61,6 +61,11 @@ SKIP_DIRS = {
 }
 
 
+def posix_rel(path: Path, base: Path) -> str:
+    """Return path relative to base, always using forward slashes."""
+    return path.relative_to(base).as_posix()
+
+
 def get_directory_listing(dir_path: Path, rel_base: Path) -> list:
     """List a single directory level (non-recursive). Fast."""
     items = []
@@ -71,7 +76,7 @@ def get_directory_listing(dir_path: Path, rel_base: Path) -> list:
     for entry in entries:
         if entry.name in SKIP_DIRS:
             continue
-        rel = str(entry.relative_to(rel_base))
+        rel = posix_rel(entry, rel_base)
         if entry.is_dir():
             node = {
                 "name": entry.name,
@@ -433,7 +438,7 @@ class WorkspaceUploadHandler(BaseHandler):
                 file_dest.mkdir(parents=True, exist_ok=True)
                 fpath = unique_filepath(file_dest, rel.name)
                 fpath.write_bytes(f["body"])
-                uploaded.append(str(fpath.relative_to(workspace)))
+                uploaded.append(posix_rel(fpath, workspace))
         self.json_response({"uploaded": uploaded})
 
 
@@ -569,14 +574,14 @@ class WorkspaceDownloadMultiHandler(BaseHandler):
                     for root, dirs, files in os.walk(full_path):
                         root_path = Path(root)
                         if not files and not dirs:
-                            arcname = str(root_path.relative_to(workspace)) + "/"
+                            arcname = posix_rel(root_path, workspace) + "/"
                             zf.writestr(arcname, "")
                         for fname in files:
                             fpath = root_path / fname
-                            arcname = str(fpath.relative_to(workspace))
+                            arcname = posix_rel(fpath, workspace)
                             zf.write(fpath, arcname)
                 else:
-                    arcname = str(full_path.relative_to(workspace))
+                    arcname = posix_rel(full_path, workspace)
                     zf.write(full_path, arcname)
         data = buf.getvalue()
         self.set_header("Content-Type", "application/zip")
@@ -636,11 +641,11 @@ class WorkspaceDownloadHandler(BaseHandler):
                     root_path = Path(root)
                     # Add empty directories
                     if not files and not dirs:
-                        arcname = str(root_path.relative_to(full_path.parent)) + "/"
+                        arcname = posix_rel(root_path, full_path.parent) + "/"
                         zf.writestr(arcname, "")
                     for fname in files:
                         fpath = root_path / fname
-                        arcname = str(fpath.relative_to(full_path.parent))
+                        arcname = posix_rel(fpath, full_path.parent)
                         zf.write(fpath, arcname)
             data = buf.getvalue()
             self.set_header("Content-Length", str(len(data)))
@@ -725,7 +730,7 @@ class ChunkedUploadHandler(BaseHandler):
             "total": total_size, "created": time.time(),
         }
 
-        self.json_response({"upload_id": upload_id, "path": str(fpath.relative_to(workspace))})
+        self.json_response({"upload_id": upload_id, "path": posix_rel(fpath, workspace)})
 
     @web.authenticated
     def put(self):
@@ -779,7 +784,7 @@ class TerminalUploadHandler(BaseHandler):
                 results.append({
                     "name": fpath.name,
                     "path": str(fpath),
-                    "relative": str(fpath.relative_to(workspace)),
+                    "relative": posix_rel(fpath, workspace),
                     "size": len(f["body"]),
                     "content_type": f.get("content_type", "application/octet-stream"),
                 })

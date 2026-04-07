@@ -27,7 +27,10 @@ html, body {
     background: var(--bg);
     overflow: hidden;
     position: fixed;
+    inset: 0;
     width: 100%;
+    overscroll-behavior: none;
+    touch-action: none;
 }
 
 /* Layout */

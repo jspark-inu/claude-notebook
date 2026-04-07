@@ -1334,27 +1334,43 @@ scrollbar.addEventListener('click', (e) => {
 // Update scrollbar on scroll and content changes
 setInterval(updateScrollbar, 200);
 
-// ========== iOS KEYBOARD FIX ==========
+// ========== KEYBOARD SCROLL PREVENTION ==========
+// Prevent body scroll when virtual keyboard appears.
+// Uses visualViewport to resize layout dynamically instead of
+// fighting scroll position with scrollTo(0,0).
 
-function pinBodyScroll() {
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    // Restore terminal scroll to bottom after layout shift
-    if (currentTerm) {
-        const vp = terminalContainer.querySelector('.xterm-viewport');
-        if (vp) setTimeout(() => { vp.scrollTop = vp.scrollHeight; }, 50);
+(function initKeyboardGuard() {
+    // Prevent any body-level scroll unconditionally
+    window.addEventListener('scroll', () => {
+        if (window.scrollX !== 0 || window.scrollY !== 0) {
+            window.scrollTo(0, 0);
+        }
+    }, { passive: false });
+
+    // On mobile, use visualViewport to shrink layout to visible area
+    // so the keyboard doesn't push content off-screen.
+    if (window.visualViewport) {
+        const layout = document.querySelector('.layout');
+        const vv = window.visualViewport;
+        let rafId = null;
+
+        function adjustLayout() {
+            rafId = null;
+            // Set layout height to the visual viewport (excludes keyboard)
+            const h = vv.height;
+            if (layout) layout.style.height = h + 'px';
+            // Ensure no body offset from viewport scroll
+            document.documentElement.style.transform = `translateY(${vv.offsetTop}px)`;
+        }
+
+        vv.addEventListener('resize', () => {
+            if (!rafId) rafId = requestAnimationFrame(adjustLayout);
+        });
+        vv.addEventListener('scroll', () => {
+            if (!rafId) rafId = requestAnimationFrame(adjustLayout);
+        });
     }
-    // Restore chat scroll to bottom
-    if (chatMode) setTimeout(scrollChatToBottom, 50);
-}
-if (window.visualViewport) {
-    const vv = window.visualViewport;
-    vv.addEventListener('resize', pinBodyScroll);
-    vv.addEventListener('scroll', pinBodyScroll);
-}
-document.querySelectorAll('input, textarea').forEach(el => {
-    el.addEventListener('focus', () => setTimeout(pinBodyScroll, 300));
-});
+})();
 
 // ========== INIT ==========
 
