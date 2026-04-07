@@ -320,6 +320,14 @@ html, body {
 }
 .finder-item:hover { background: var(--sidebar-hover); }
 .finder-item.selected { background: var(--accent); color: #fff; }
+/* Rubber-band drag selection */
+.rubber-band {
+    position: absolute;
+    border: 1px solid var(--accent);
+    background: rgba(46, 170, 220, 0.1);
+    pointer-events: none;
+    z-index: 10;
+}
 .finder-item.selected .finder-item-name { color: #fff; }
 .finder-item.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .finder-item-icon {

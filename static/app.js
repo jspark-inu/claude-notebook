@@ -174,6 +174,7 @@
     let selectedPaths = new Set();
     let lastClickedIndex = -1;
     let currentItems = [];
+    let _rubberBandUsed = false; // set true when rubber-band drag selects items
 
     function clearSelection() {
         selectedPaths.clear();
@@ -282,12 +283,10 @@
                     el.dataset.index = idx;
                     const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
                     el.innerHTML = `<div class="finder-item-icon">${icon}</div><div class="finder-item-name">${escHtml(item.name)}</div>`;
-                    // Click: multi-select or navigate
+                    // Click: Ctrl/Shift select or navigate
                     el.addEventListener('click', (e) => {
-                        // Long-press flag set → already handled
-                        if (el._longPressed) { el._longPressed = false; return; }
+                        if (_rubberBandUsed) return; // rubber-band just ended
                         if (e.ctrlKey || e.metaKey) {
-                            // Toggle selection
                             e.preventDefault();
                             if (selectedPaths.has(item.path)) {
                                 selectedPaths.delete(item.path);
@@ -299,7 +298,6 @@
                             lastClickedIndex = idx;
                             updateSelectionBar();
                         } else if (e.shiftKey && lastClickedIndex >= 0) {
-                            // Range selection
                             e.preventDefault();
                             const start = Math.min(lastClickedIndex, idx);
                             const end = Math.max(lastClickedIndex, idx);
@@ -309,7 +307,6 @@
                             }
                             updateSelectionBar();
                         } else {
-                            // Normal click
                             if (selectedPaths.size > 0) {
                                 clearSelection();
                                 return;
@@ -321,25 +318,6 @@
                             }
                         }
                     });
-                    // Long-press: toggle selection (mobile-friendly)
-                    let longPressTimer = null;
-                    el.addEventListener('pointerdown', (e) => {
-                        longPressTimer = setTimeout(() => {
-                            longPressTimer = null;
-                            el._longPressed = true;
-                            if (selectedPaths.has(item.path)) {
-                                selectedPaths.delete(item.path);
-                                el.classList.remove('selected');
-                            } else {
-                                selectedPaths.add(item.path);
-                                el.classList.add('selected');
-                            }
-                            lastClickedIndex = idx;
-                            updateSelectionBar();
-                        }, 500);
-                    });
-                    el.addEventListener('pointerup', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } });
-                    el.addEventListener('pointerleave', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } });
                     // Right-click: context menu
                     el.addEventListener('contextmenu', (e) => {
                         e.preventDefault();
@@ -372,6 +350,83 @@
             el.addEventListener('click', () => loadFinderGrid(el.dataset.path));
         });
     }
+
+    // === Rubber-band drag selection (Windows-style) ===
+    (function setupRubberBand() {
+        let rbEl = null;     // the visual rectangle element
+        let rbActive = false;
+        let rbStartX = 0, rbStartY = 0;
+        const finder = document.getElementById('finder');
+
+        // Create rubber-band element once
+        rbEl = document.createElement('div');
+        rbEl.className = 'rubber-band';
+        rbEl.style.display = 'none';
+        finder.style.position = 'relative';
+        finder.appendChild(rbEl);
+
+        function rectsIntersect(a, b) {
+            return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+        }
+
+        finder.addEventListener('mousedown', (e) => {
+            // Only start on empty space (not on items, buttons, inputs)
+            if (e.target.closest('.finder-item, .finder-btn, .finder-toolbar, .selection-bar, label, input, button')) return;
+            if (e.button !== 0) return;
+            rbActive = true;
+            _rubberBandUsed = false;
+            const finderRect = finder.getBoundingClientRect();
+            rbStartX = e.clientX - finderRect.left + finder.scrollLeft;
+            rbStartY = e.clientY - finderRect.top + finder.scrollTop;
+            rbEl.style.left = rbStartX + 'px';
+            rbEl.style.top = rbStartY + 'px';
+            rbEl.style.width = '0';
+            rbEl.style.height = '0';
+            rbEl.style.display = 'block';
+            // Clear previous selection unless Ctrl held
+            if (!e.ctrlKey && !e.metaKey) clearSelection();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!rbActive) return;
+            const finderRect = finder.getBoundingClientRect();
+            const curX = e.clientX - finderRect.left + finder.scrollLeft;
+            const curY = e.clientY - finderRect.top + finder.scrollTop;
+            const x = Math.min(rbStartX, curX);
+            const y = Math.min(rbStartY, curY);
+            const w = Math.abs(curX - rbStartX);
+            const h = Math.abs(curY - rbStartY);
+            rbEl.style.left = x + 'px';
+            rbEl.style.top = y + 'px';
+            rbEl.style.width = w + 'px';
+            rbEl.style.height = h + 'px';
+
+            // Hit-test items against rubber-band rect
+            if (w > 4 || h > 4) {
+                _rubberBandUsed = true;
+                const bandRect = { left: x + finderRect.left - finder.scrollLeft, top: y + finderRect.top - finder.scrollTop, right: x + w + finderRect.left - finder.scrollLeft, bottom: y + h + finderRect.top - finder.scrollTop };
+                selectedPaths.clear();
+                finderGrid.querySelectorAll('.finder-item').forEach((el) => {
+                    const itemRect = el.getBoundingClientRect();
+                    if (rectsIntersect(bandRect, itemRect)) {
+                        selectedPaths.add(el.dataset.path);
+                        el.classList.add('selected');
+                    } else {
+                        el.classList.remove('selected');
+                    }
+                });
+                updateSelectionBar();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!rbActive) return;
+            rbActive = false;
+            rbEl.style.display = 'none';
+            // Reset flag after a tick so click handler can check it
+            if (_rubberBandUsed) setTimeout(() => { _rubberBandUsed = false; }, 10);
+        });
+    })();
 
     // === Context Menu ===
     let contextEl = null;
