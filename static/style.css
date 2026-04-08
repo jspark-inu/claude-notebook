@@ -307,6 +307,71 @@ html, body {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 8px;
 }
+/* Detail (list) view */
+.finder-detail {
+    display: flex;
+    flex-direction: column;
+}
+.finder-detail-header {
+    display: grid;
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.7fr);
+    gap: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+}
+.finder-detail-header .fd-col {
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.finder-detail-header .fd-col:hover { background: var(--sidebar-hover); color: var(--text); }
+.finder-detail-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.7fr);
+    gap: 8px;
+    padding: 6px 10px !important;
+    align-items: center;
+    border-radius: 4px !important;
+    font-size: 13px;
+}
+.finder-detail-row .fd-col {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+.finder-detail-row .fd-col-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.finder-detail-row .fd-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+.finder-detail-row .fd-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.finder-detail-row .fd-col-mtime,
+.finder-detail-row .fd-col-type,
+.finder-detail-row .fd-col-size {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+.finder-detail-row .fd-col-size {
+    text-align: right;
+}
+.finder-detail-row.selected .fd-col-mtime,
+.finder-detail-row.selected .fd-col-type,
+.finder-detail-row.selected .fd-col-size { color: rgba(255,255,255,0.85); }
 .finder-item {
     display: flex;
     flex-direction: column;

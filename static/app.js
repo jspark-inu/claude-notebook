@@ -176,6 +176,30 @@
     let currentItems = [];
     let _rubberBandUsed = false; // set true when rubber-band drag selects items
 
+    // === View mode state ===
+    let viewMode = localStorage.getItem('finderViewMode') || 'grid'; // 'grid' | 'detail'
+    let detailSortKey = 'name'; // 'name' | 'mtime' | 'size' | 'type'
+    let detailSortDesc = false;
+
+    function formatFileSize(bytes) {
+        if (bytes == null) return '';
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+    function formatMtime(ts) {
+        if (!ts) return '';
+        const d = new Date(ts * 1000);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function fileTypeLabel(item) {
+        if (item.type === 'directory') return '폴더';
+        const ext = item.name.includes('.') ? item.name.split('.').pop().toLowerCase() : '';
+        return ext ? ext.toUpperCase() + ' 파일' : '파일';
+    }
+
     function clearSelection() {
         selectedPaths.clear();
         lastClickedIndex = -1;
@@ -254,7 +278,117 @@
         }
     }
 
-    // === Finder Grid ===
+    // === Finder Grid/Detail view ===
+    function sortItems(items) {
+        const dirFirst = (a, b) => (a.type !== b.type) ? (a.type === 'directory' ? -1 : 1) : 0;
+        items.sort((a, b) => {
+            const d = dirFirst(a, b);
+            if (d !== 0) return d;
+            let cmp = 0;
+            if (detailSortKey === 'name') cmp = a.name.localeCompare(b.name);
+            else if (detailSortKey === 'mtime') cmp = (a.mtime || 0) - (b.mtime || 0);
+            else if (detailSortKey === 'size') cmp = (a.size || 0) - (b.size || 0);
+            else if (detailSortKey === 'type') cmp = fileTypeLabel(a).localeCompare(fileTypeLabel(b));
+            return detailSortDesc ? -cmp : cmp;
+        });
+    }
+
+    function attachItemEvents(el, item, idx) {
+        el.addEventListener('click', (e) => {
+            if (_rubberBandUsed) return;
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                if (selectedPaths.has(item.path)) {
+                    selectedPaths.delete(item.path);
+                    el.classList.remove('selected');
+                } else {
+                    selectedPaths.add(item.path);
+                    el.classList.add('selected');
+                }
+                lastClickedIndex = idx;
+                updateSelectionBar();
+            } else if (e.shiftKey && lastClickedIndex >= 0) {
+                e.preventDefault();
+                const start = Math.min(lastClickedIndex, idx);
+                const end = Math.max(lastClickedIndex, idx);
+                const rows = finderGrid.children;
+                for (let i = start; i <= end; i++) {
+                    selectedPaths.add(currentItems[i].path);
+                    if (rows[i]) rows[i].classList.add('selected');
+                }
+                updateSelectionBar();
+            } else {
+                if (selectedPaths.size > 0) { clearSelection(); return; }
+                if (item.type === 'directory') loadFinderGrid(item.path);
+                else openPreview(item.path);
+            }
+        });
+        el.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (selectedPaths.size > 1 && selectedPaths.has(item.path)) {
+                showMultiContextMenu(e.clientX, e.clientY);
+            } else {
+                clearSelection();
+                showContextMenu(e.clientX, e.clientY, item);
+            }
+        });
+    }
+
+    function renderGridView(items) {
+        finderGrid.className = 'finder-grid';
+        finderGrid.innerHTML = '';
+        items.forEach((item, idx) => {
+            const el = document.createElement('div');
+            el.className = 'finder-item';
+            el.dataset.path = item.path;
+            el.dataset.type = item.type;
+            el.dataset.name = item.name;
+            el.dataset.index = idx;
+            const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
+            el.innerHTML = `<div class="finder-item-icon">${icon}</div><div class="finder-item-name">${escHtml(item.name)}</div>`;
+            attachItemEvents(el, item, idx);
+            finderGrid.appendChild(el);
+        });
+    }
+
+    function renderDetailView(items) {
+        finderGrid.className = 'finder-detail';
+        const arrow = (key) => detailSortKey === key ? (detailSortDesc ? ' ▼' : ' ▲') : '';
+        let html = `<div class="finder-detail-header">
+            <div class="fd-col fd-col-name" data-sort="name">이름${arrow('name')}</div>
+            <div class="fd-col fd-col-mtime" data-sort="mtime">수정한 날짜${arrow('mtime')}</div>
+            <div class="fd-col fd-col-type" data-sort="type">유형${arrow('type')}</div>
+            <div class="fd-col fd-col-size" data-sort="size">크기${arrow('size')}</div>
+        </div>`;
+        finderGrid.innerHTML = html;
+        items.forEach((item, idx) => {
+            const row = document.createElement('div');
+            row.className = 'finder-item finder-detail-row';
+            row.dataset.path = item.path;
+            row.dataset.type = item.type;
+            row.dataset.name = item.name;
+            row.dataset.index = idx;
+            const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
+            row.innerHTML = `
+                <div class="fd-col fd-col-name"><span class="fd-icon">${icon}</span><span class="fd-name">${escHtml(item.name)}</span></div>
+                <div class="fd-col fd-col-mtime">${formatMtime(item.mtime)}</div>
+                <div class="fd-col fd-col-type">${fileTypeLabel(item)}</div>
+                <div class="fd-col fd-col-size">${item.type === 'directory' ? '' : formatFileSize(item.size)}</div>
+            `;
+            attachItemEvents(row, item, idx);
+            finderGrid.appendChild(row);
+        });
+        // Header sort click
+        finderGrid.querySelectorAll('.finder-detail-header .fd-col[data-sort]').forEach(col => {
+            col.addEventListener('click', () => {
+                const key = col.dataset.sort;
+                if (detailSortKey === key) detailSortDesc = !detailSortDesc;
+                else { detailSortKey = key; detailSortDesc = false; }
+                loadFinderGrid(currentFinderPath);
+            });
+        });
+    }
+
     async function loadFinderGrid(dirPath) {
         currentFinderPath = dirPath || '';
         selectedPaths.clear();
@@ -262,80 +396,42 @@
         try {
             const items = await fetchTreeLevel(dirPath);
             currentItems = items;
-            finderGrid.innerHTML = '';
-            // Sort by name (folders first, then files)
-            items.sort((a, b) => {
-                if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-                return a.name.localeCompare(b.name);
-            });
+            sortItems(items);
             if (items.length === 0) {
                 finderEmpty.style.display = '';
                 finderGrid.style.display = 'none';
+                finderGrid.innerHTML = '';
             } else {
                 finderEmpty.style.display = 'none';
                 finderGrid.style.display = '';
-                items.forEach((item, idx) => {
-                    const el = document.createElement('div');
-                    el.className = 'finder-item';
-                    el.dataset.path = item.path;
-                    el.dataset.type = item.type;
-                    el.dataset.name = item.name;
-                    el.dataset.index = idx;
-                    const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
-                    el.innerHTML = `<div class="finder-item-icon">${icon}</div><div class="finder-item-name">${escHtml(item.name)}</div>`;
-                    // Click: Ctrl/Shift select or navigate
-                    el.addEventListener('click', (e) => {
-                        if (_rubberBandUsed) return; // rubber-band just ended
-                        if (e.ctrlKey || e.metaKey) {
-                            e.preventDefault();
-                            if (selectedPaths.has(item.path)) {
-                                selectedPaths.delete(item.path);
-                                el.classList.remove('selected');
-                            } else {
-                                selectedPaths.add(item.path);
-                                el.classList.add('selected');
-                            }
-                            lastClickedIndex = idx;
-                            updateSelectionBar();
-                        } else if (e.shiftKey && lastClickedIndex >= 0) {
-                            e.preventDefault();
-                            const start = Math.min(lastClickedIndex, idx);
-                            const end = Math.max(lastClickedIndex, idx);
-                            for (let i = start; i <= end; i++) {
-                                selectedPaths.add(currentItems[i].path);
-                                finderGrid.children[i].classList.add('selected');
-                            }
-                            updateSelectionBar();
-                        } else {
-                            if (selectedPaths.size > 0) {
-                                clearSelection();
-                                return;
-                            }
-                            if (item.type === 'directory') {
-                                loadFinderGrid(item.path);
-                            } else {
-                                openPreview(item.path);
-                            }
-                        }
-                    });
-                    // Right-click: context menu
-                    el.addEventListener('contextmenu', (e) => {
-                        e.preventDefault();
-                        if (selectedPaths.size > 1 && selectedPaths.has(item.path)) {
-                            showMultiContextMenu(e.clientX, e.clientY);
-                        } else {
-                            clearSelection();
-                            showContextMenu(e.clientX, e.clientY, item);
-                        }
-                    });
-                    finderGrid.appendChild(el);
-                });
+                if (viewMode === 'detail') renderDetailView(items);
+                else renderGridView(items);
             }
             updateFinderBreadcrumb(dirPath);
         } catch (err) {
             finderGrid.innerHTML = `<div style="padding:20px;color:var(--text-secondary);">Error: ${escHtml(err.message)}</div>`;
         }
     }
+
+    // View toggle button
+    (function setupViewToggle() {
+        const btn = document.getElementById('viewToggleBtn');
+        if (!btn) return;
+        const iconGrid = document.getElementById('viewToggleIconGrid');
+        const iconList = document.getElementById('viewToggleIconList');
+        function updateIcon() {
+            // Show the icon that represents what you'll SWITCH TO
+            if (viewMode === 'grid') { iconGrid.style.display = 'none'; iconList.style.display = ''; btn.title = '자세히 보기'; }
+            else { iconGrid.style.display = ''; iconList.style.display = 'none'; btn.title = '큰 아이콘 보기'; }
+        }
+        updateIcon();
+        btn.addEventListener('click', () => {
+            viewMode = viewMode === 'grid' ? 'detail' : 'grid';
+            localStorage.setItem('finderViewMode', viewMode);
+            updateIcon();
+            loadFinderGrid(currentFinderPath);
+        });
+    })();
 
     function updateFinderBreadcrumb(dirPath) {
         const parts = dirPath ? dirPath.split('/') : [];

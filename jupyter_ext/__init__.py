@@ -77,12 +77,20 @@ def get_directory_listing(dir_path: Path, rel_base: Path) -> list:
         if entry.name in SKIP_DIRS:
             continue
         rel = posix_rel(entry, rel_base)
+        try:
+            stat = entry.stat()
+            mtime = stat.st_mtime
+            size = stat.st_size if entry.is_file() else None
+        except OSError:
+            mtime = None
+            size = None
         if entry.is_dir():
             node = {
                 "name": entry.name,
                 "path": rel,
                 "type": "directory",
                 "has_children": True,
+                "mtime": mtime,
             }
             repo_url = get_git_remote_url(entry)
             if repo_url:
@@ -93,6 +101,8 @@ def get_directory_listing(dir_path: Path, rel_base: Path) -> list:
                 "name": entry.name,
                 "path": rel,
                 "type": "file",
+                "mtime": mtime,
+                "size": size,
             })
     return items
 
