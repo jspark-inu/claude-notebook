@@ -123,9 +123,17 @@ function autoResizeInput() {
 const inputResizeHandle = document.getElementById('inputResizeHandle');
 (function setupInputResize() {
     let startY = 0, startH = 0;
+    // Unified touch/mouse Y coordinate reader — `e.clientY || e.touches[0]`
+    // is buggy when clientY is exactly 0 AND crashes on pure-touch events
+    // where clientY is undefined. Explicit check avoids both.
+    function getY(e) {
+        if (e.touches && e.touches.length > 0) return e.touches[0].clientY;
+        if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
+        return e.clientY;
+    }
     function onMouseDown(e) {
         e.preventDefault();
-        startY = e.clientY || e.touches[0].clientY;
+        startY = getY(e);
         startH = termInputBar.offsetHeight;
         inputResizeHandle.classList.add('active');
         document.addEventListener('mousemove', onMouseMove);
@@ -135,13 +143,16 @@ const inputResizeHandle = document.getElementById('inputResizeHandle');
     }
     function onMouseMove(e) {
         e.preventDefault();
-        const y = e.clientY !== undefined ? e.clientY : e.touches[0].clientY;
+        const y = getY(e);
         const delta = startY - y;
         const newH = Math.max(44, Math.min(startH + delta, window.innerHeight * 0.5));
         inputBarManualHeight = newH;
         termInputBar.style.height = newH + 'px';
         termInputField.style.height = '100%';
         termInputField.style.maxHeight = 'none';
+        // Keep the custom xterm scrollbar thumb in sync while dragging —
+        // otherwise its position becomes stale until mouseup.
+        updateScrollbar();
     }
     function onMouseUp() {
         inputResizeHandle.classList.remove('active');
@@ -150,6 +161,7 @@ const inputResizeHandle = document.getElementById('inputResizeHandle');
         document.removeEventListener('touchmove', onMouseMove);
         document.removeEventListener('touchend', onMouseUp);
         if (fitAddon) fitAddon.fit();
+        updateScrollbar();
     }
     inputResizeHandle.addEventListener('mousedown', onMouseDown);
     inputResizeHandle.addEventListener('touchstart', onMouseDown, { passive: false });
@@ -161,6 +173,7 @@ const inputResizeHandle = document.getElementById('inputResizeHandle');
         termInputField.style.maxHeight = '';
         autoResizeInput();
         if (fitAddon) fitAddon.fit();
+        updateScrollbar();
     });
 })();
 

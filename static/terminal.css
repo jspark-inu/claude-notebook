@@ -19,6 +19,48 @@
     --radius-lg: 12px;
     --radius-pill: 18px;
 }
+
+/* ===== Unified thin scrollbars =====
+   Gives Windows Chrome/Edge the same low-profile look as macOS overlay
+   scrollbars. Applies to every scrollable area by default; specific
+   elements (.xterm-viewport) override to hide completely. */
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+    background: rgba(55, 53, 47, 0.18);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    transition: background 0.15s;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(55, 53, 47, 0.4);
+    background-clip: content-box;
+}
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(55, 53, 47, 0.22) transparent;
+}
+/* Dark surfaces inside terminal area — lighter thumb to stay visible on #1e1e1e */
+.term-select-overlay {
+    scrollbar-color: rgba(212, 212, 212, 0.22) transparent;
+}
+.term-select-overlay::-webkit-scrollbar-thumb {
+    background: rgba(212, 212, 212, 0.22);
+    background-clip: content-box;
+}
+.term-select-overlay::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 212, 212, 0.44);
+    background-clip: content-box;
+}
 html, body {
     height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
@@ -103,8 +145,6 @@ html, body {
     flex: 1;
     overflow-y: auto;
     padding: 8px 0;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
 }
 .term-item {
     display: flex;
@@ -390,6 +430,9 @@ html, body {
     line-height: 1.4;
     overflow-y: auto;
     min-height: 0;
+    /* Reserve gutter always so the scrollbar appearing on Windows does not
+       shift content left/right when typing multi-line commands. */
+    scrollbar-gutter: stable;
 }
 .term-input-field:focus {
     border-color: var(--accent);
