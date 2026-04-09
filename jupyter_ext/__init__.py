@@ -1,5 +1,6 @@
 """Jupyter Notebook 6 server extension for Claude Notebook."""
 
+import hashlib
 import io
 import json
 import os
@@ -7,6 +8,7 @@ import re
 import time
 import uuid
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -19,6 +21,84 @@ from notebook.base.handlers import IPythonHandler
 _MAX_TEXT_PREVIEW = 10 * 1024 * 1024
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
+
+# ---------------------------------------------------------------------------
+# Snapshot storage
+# ---------------------------------------------------------------------------
+# Every save captures the PREVIOUS content to a per-file history directory
+# under the user's home, keyed by a hash of the absolute path. This gives
+# users a safety net when auto-save is enabled, without polluting the
+# workspace with .bak files.
+
+SNAPSHOT_ROOT = Path.home() / ".claude-notebook" / "snapshots"
+MAX_SNAPSHOTS_PER_FILE = 20
+_SNAPSHOT_TS_RE = re.compile(r'^\d{8}-\d{6}-\d{3}$')
+
+
+def _snapshot_dir_for(full_path: Path) -> Path:
+    """Return the per-file snapshot directory (created on demand by callers)."""
+    key = hashlib.sha1(str(full_path.resolve()).encode("utf-8")).hexdigest()
+    return SNAPSHOT_ROOT / key
+
+
+def _take_snapshot(full_path: Path) -> None:
+    """Copy the current contents of *full_path* into its snapshot directory.
+
+    No-op if the file doesn't exist yet (first save). Old snapshots beyond
+    MAX_SNAPSHOTS_PER_FILE are pruned, keeping the most recent ones. Any
+    IO error is swallowed: snapshots are a best-effort safety net, not a
+    hard dependency of save.
+    """
+    if not full_path.is_file():
+        return
+    try:
+        content = full_path.read_bytes()
+    except OSError:
+        return
+
+    snap_dir = _snapshot_dir_for(full_path)
+    try:
+        snap_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+
+    index_file = snap_dir / "index.json"
+    index = {}
+    if index_file.exists():
+        try:
+            index = json.loads(index_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            index = {}
+    index["path"] = str(full_path)
+    snaps = index.setdefault("snapshots", [])
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    snap_file = snap_dir / f"{ts}.bak"
+    try:
+        snap_file.write_bytes(content)
+    except OSError:
+        return
+    snaps.append({"ts": ts, "size": len(content)})
+
+    if len(snaps) > MAX_SNAPSHOTS_PER_FILE:
+        excess = snaps[:-MAX_SNAPSHOTS_PER_FILE]
+        index["snapshots"] = snaps[-MAX_SNAPSHOTS_PER_FILE:]
+        for old in excess:
+            old_ts = old.get("ts", "")
+            if not _SNAPSHOT_TS_RE.match(old_ts):
+                continue
+            try:
+                (snap_dir / f"{old_ts}.bak").unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    try:
+        index_file.write_text(
+            json.dumps(index, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -485,11 +565,63 @@ class WorkspaceSaveHandler(BaseHandler):
         full_path = self.validate_path(file_path)
         if not full_path.is_file():
             raise web.HTTPError(404, "Not found: %s" % file_path)
+        # Snapshot the previous content before overwriting so the user can
+        # recover if auto-save commits something they didn't mean to keep.
+        _take_snapshot(full_path)
         try:
             full_path.write_text(content, encoding="utf-8")
         except OSError as e:
             raise web.HTTPError(500, "Write error: %s" % str(e))
         self.json_response({"saved": file_path})
+
+
+class WorkspaceSnapshotsListHandler(BaseHandler):
+    """List snapshots for a given file (newest first)."""
+    @web.authenticated
+    def get(self):
+        file_path = self.get_argument("path", None)
+        full_path = self.validate_path(file_path)
+        snap_dir = _snapshot_dir_for(full_path)
+        index_file = snap_dir / "index.json"
+        if not index_file.is_file():
+            self.json_response({"snapshots": []})
+            return
+        try:
+            index = json.loads(index_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            self.json_response({"snapshots": []})
+            return
+        snaps = list(reversed(index.get("snapshots", [])))
+        self.json_response({"snapshots": snaps})
+
+
+class WorkspaceSnapshotContentHandler(BaseHandler):
+    """Return the content of a specific snapshot."""
+    @web.authenticated
+    def get(self):
+        file_path = self.get_argument("path", None)
+        ts = self.get_argument("ts", None)
+        if not ts or not _SNAPSHOT_TS_RE.match(ts):
+            raise web.HTTPError(400, "Invalid ts")
+        full_path = self.validate_path(file_path)
+        snap_dir = _snapshot_dir_for(full_path)
+        snap_file = snap_dir / f"{ts}.bak"
+        # Confine to the computed snapshot dir to reject traversal
+        try:
+            resolved = snap_file.resolve()
+            if not str(resolved).startswith(str(snap_dir.resolve())):
+                raise web.HTTPError(400, "Invalid snapshot path")
+        except (OSError, ValueError):
+            raise web.HTTPError(400, "Invalid snapshot path")
+        if not snap_file.is_file():
+            raise web.HTTPError(404, "Snapshot not found")
+        try:
+            content = snap_file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raise web.HTTPError(415, "Snapshot is not text")
+        except OSError as e:
+            raise web.HTTPError(500, "Read error: %s" % str(e))
+        self.json_response({"content": content, "ts": ts})
 
 
 class WorkspaceNewFileHandler(BaseHandler):
@@ -878,6 +1010,8 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/api/upload"), WorkspaceUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/upload-chunk"), ChunkedUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/save"), WorkspaceSaveHandler),
+        (ujoin(base_url, r"/claude-notebook/api/snapshots"), WorkspaceSnapshotsListHandler),
+        (ujoin(base_url, r"/claude-notebook/api/snapshots/content"), WorkspaceSnapshotContentHandler),
         (ujoin(base_url, r"/claude-notebook/api/delete"), WorkspaceDeleteHandler),
         (ujoin(base_url, r"/claude-notebook/api/newfile"), WorkspaceNewFileHandler),
         (ujoin(base_url, r"/claude-notebook/api/mkdir"), WorkspaceMkdirHandler),

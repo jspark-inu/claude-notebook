@@ -18,9 +18,14 @@
     const previewBreadcrumb = document.getElementById('previewBreadcrumb');
     const previewClose = document.getElementById('previewClose');
     const previewDownload = document.getElementById('previewDownload');
-    const previewEdit = document.getElementById('previewEdit');
-    const previewSave = document.getElementById('previewSave');
+    const previewStatus = document.getElementById('previewStatus');
+    const previewHistory = document.getElementById('previewHistory');
     const previewColorRules = document.getElementById('previewColorRules');
+    const historyOverlay = document.getElementById('historyOverlay');
+    const historyClose = document.getElementById('historyClose');
+    const historyList = document.getElementById('historyList');
+    const historyPreview = document.getElementById('historyPreview');
+    const historyRestore = document.getElementById('historyRestore');
 
     const BASE = window.__VIEWER_BASE || '';
     const XSRF = window.__XSRF_TOKEN || '';
@@ -35,8 +40,17 @@
     }
     let currentFinderPath = '';
     let currentPreviewPath = '';
-    let isEditing = false;
-    let currentFileData = null; // { path, content, extension }
+    let isInlineEditing = false;           // true when md/txt/code textarea is shown
+    let currentFileData = null;            // { path, content, extension }
+    // Auto-save state machine
+    const AUTO_SAVE_DEBOUNCE_MS = 1500;
+    let saveTimer = null;                  // pending debounced save
+    let lastSavedContent = null;           // last content confirmed on disk
+    let saveInFlight = false;              // a PUT is currently running
+    // History modal state
+    let currentSnapshots = [];
+    let selectedSnapshotTs = null;
+    let selectedSnapshotContent = null;
 
     // === Sidebar toggle ===
     function isMobile() { return window.matchMedia('(max-width: 768px)').matches; }
@@ -966,12 +980,14 @@
 
     function openPreview(path) {
         currentPreviewPath = path;
-        isEditing = false;
+        isInlineEditing = false;
         currentFileData = null;
+        lastSavedContent = null;
+        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+        setSaveStatus('idle');
         previewOverlay.classList.add('active');
         finder.style.display = 'none';
-        previewEdit.style.display = 'none';
-        previewSave.style.display = 'none';
+        previewHistory.style.display = 'none';
         previewColorRules.style.display = 'none';
         loadPreviewContent(path);
         updateHash(path);
@@ -979,19 +995,21 @@
         document.title = fileName + ' - Claude Notebook';
     }
 
-    function closePreviewFn() {
-        if (isEditing && !confirm('Discard unsaved changes?')) return;
+    async function closePreviewFn() {
+        // Flush any pending auto-save before closing so the user never loses
+        // work just because they navigated away quickly.
+        await flushSave({ silent: true });
         previewOverlay.classList.remove('active');
         previewBody.classList.remove('csv-mode');
         finder.style.display = '';
         previewBody.innerHTML = '';
         currentPreviewPath = '';
-        isEditing = false;
+        isInlineEditing = false;
         currentFileData = null;
-        previewEdit.style.display = 'none';
-        previewSave.style.display = 'none';
+        lastSavedContent = null;
+        previewHistory.style.display = 'none';
         previewColorRules.style.display = 'none';
-        previewEdit.classList.remove('active');
+        setSaveStatus('idle');
         updateHash(currentPath);
         const folderName = currentPath.split('/').pop() || 'Workspace';
         document.title = folderName + ' - Claude Notebook';
@@ -999,121 +1017,342 @@
     previewClose.addEventListener('click', closePreviewFn);
     previewDownload.addEventListener('click', () => { if (currentPreviewPath) downloadFile(currentPreviewPath); });
 
-    // Edit toggle
-    previewEdit.addEventListener('click', () => {
-        if (!currentFileData) return;
-        if (isEditing) {
-            // Switch back to preview
-            isEditing = false;
-            previewEdit.classList.remove('active');
-            previewSave.style.display = 'none';
-            const isCsv = CSV_EXTS.includes(currentFileData.extension);
-            previewColorRules.style.display = isCsv ? '' : 'none';
-            renderPreviewMode(currentFileData);
-        } else {
-            // Switch to edit
-            isEditing = true;
-            previewEdit.classList.add('active');
-            previewSave.style.display = '';
-            previewColorRules.style.display = 'none';
-            renderEditMode(currentFileData);
-        }
-    });
+    // ========== AUTO-SAVE STATE MACHINE ==========
+    // No edit/save buttons. The preview is always ready to become the editor.
+    //
+    // Flow:
+    //   - Opening a file shows a rendered preview (markdown) or raw text view.
+    //   - Clicking the rendered preview swaps it for an inline textarea.
+    //   - Typing schedules a debounced save (1.5s); blur flushes immediately;
+    //     Ctrl/Cmd+S also flushes; Escape reverts.
+    //   - CSV / timetable / datetable are always-on editors and schedule save
+    //     on every mutation through the same pipeline.
+    //   - Status pill in the toolbar shows idle / dirty / saving / saved / error.
 
-    // Save
-    previewSave.addEventListener('click', async () => {
-        if (!currentFileData) return;
-        let content;
+    function setSaveStatus(state) {
+        if (!previewStatus) return;
+        previewStatus.dataset.state = state;
+    }
+
+    /** Collect the latest content from whichever editor is currently active. */
+    function getCurrentContent() {
+        if (!currentFileData) return null;
         const ext = currentFileData.extension;
         if (CSV_EXTS.includes(ext)) {
-            content = csvTableToString();
-        } else if (TIMETABLE_EXTS.includes(ext)) {
-            content = JSON.stringify(_timetableData, null, 2);
-        } else if (DATETABLE_EXTS.includes(ext)) {
-            content = JSON.stringify(_datetableData, null, 2);
-        } else {
-            const ta = previewBody.querySelector('.edit-textarea');
-            if (!ta) return;
-            content = ta.value;
+            // csvEditRows is the single source of truth for CSV — both
+            // viewer-checkbox mutations and editor cell edits feed it.
+            if (csvEditRows && csvEditRows.length > 0) return csvTableToString();
+            return currentFileData.content;
         }
+        if (TIMETABLE_EXTS.includes(ext)) return JSON.stringify(_timetableData, null, 2);
+        if (DATETABLE_EXTS.includes(ext)) return JSON.stringify(_datetableData, null, 2);
+        const ta = previewBody.querySelector('.edit-textarea');
+        if (ta) return ta.value;
+        return null;
+    }
+
+    /** Schedule a debounced save. Called on every user mutation. */
+    function scheduleSave() {
+        if (!currentFileData) return;
+        if (saveTimer) clearTimeout(saveTimer);
+        setSaveStatus('dirty');
+        saveTimer = setTimeout(() => { saveTimer = null; flushSave(); }, AUTO_SAVE_DEBOUNCE_MS);
+    }
+
+    /** Write current content to disk immediately, bypassing the debounce. */
+    async function flushSave({ silent = false } = {}) {
+        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+        if (!currentFileData) return;
+        const content = getCurrentContent();
+        if (content == null) return;
+        if (content === lastSavedContent) {
+            if (!silent) setSaveStatus('saved');
+            return;
+        }
+        if (saveInFlight) {
+            // Another save is running; re-schedule a short retry so the
+            // latest content always gets written.
+            saveTimer = setTimeout(() => { saveTimer = null; flushSave({ silent }); }, 200);
+            return;
+        }
+        saveInFlight = true;
+        if (!silent) setSaveStatus('saving');
         try {
             const res = await fetch(`${BASE}/api/save`, mutFetchOpts({
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'X-XSRFToken': XSRF },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: currentFileData.path, content }),
             }));
             if (!res.ok) throw new Error(await res.text());
+            lastSavedContent = content;
             currentFileData.content = content;
-            isEditing = false;
-            previewEdit.classList.remove('active');
-            previewSave.style.display = 'none';
-            renderPreviewMode(currentFileData);
+            if (!silent) setSaveStatus('saved');
         } catch (err) {
-            alert('Save failed: ' + err.message);
+            console.warn('Auto-save failed:', err);
+            if (!silent) setSaveStatus('error');
+        } finally {
+            saveInFlight = false;
         }
+    }
+
+    /** Swap the rendered preview for an inline textarea (md / txt / code). */
+    function enterInlineEdit(clickY) {
+        if (!currentFileData) return;
+        if (!EDITABLE_EXTS.includes(currentFileData.extension)) return;
+        // Preserve vertical scroll so the switch feels seamless
+        const scrollTop = previewBody.scrollTop;
+        const ratio = previewBody.scrollHeight > 0
+            ? (clickY != null ? clickY : scrollTop) / previewBody.scrollHeight
+            : 0;
+
+        isInlineEditing = true;
+        previewBody.innerHTML = `<textarea class="edit-textarea" spellcheck="false"></textarea>`;
+        const ta = previewBody.querySelector('.edit-textarea');
+        ta.value = currentFileData.content || '';
+
+        // Give the browser one frame to compute textarea layout before sizing.
+        requestAnimationFrame(() => {
+            ta.style.height = 'auto';
+            ta.style.height = Math.max(ta.scrollHeight, previewBody.clientHeight - 40) + 'px';
+            // Approximate cursor position from where the user clicked
+            const totalLen = ta.value.length;
+            const approx = Math.round(totalLen * ratio);
+            ta.focus({ preventScroll: true });
+            try { ta.setSelectionRange(approx, approx); } catch {}
+            previewBody.scrollTop = scrollTop;
+        });
+
+        ta.addEventListener('input', () => {
+            // Re-grow textarea as content changes
+            ta.style.height = 'auto';
+            ta.style.height = Math.max(ta.scrollHeight, previewBody.clientHeight - 40) + 'px';
+            scheduleSave();
+        });
+        ta.addEventListener('blur', () => { flushSave(); });
+        ta.addEventListener('keydown', (e) => {
+            // Tab inserts 4 spaces (standard editor affordance)
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = ta.selectionStart;
+                ta.value = ta.value.substring(0, start) + '    ' + ta.value.substring(ta.selectionEnd);
+                ta.selectionStart = ta.selectionEnd = start + 4;
+                scheduleSave();
+                return;
+            }
+            // Ctrl/Cmd+S flushes immediately without waiting for debounce
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                flushSave();
+                return;
+            }
+            // Escape reverts to last-saved content and re-renders preview
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                ta.value = lastSavedContent != null ? lastSavedContent : (currentFileData.content || '');
+                isInlineEditing = false;
+                if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+                setSaveStatus('saved');
+                renderPreviewMode(currentFileData);
+            }
+        });
+    }
+
+    // Global Ctrl/Cmd+S handler: works even when focus isn't in the textarea
+    // (e.g., user is scrolling the preview but wants to force a save).
+    document.addEventListener('keydown', (e) => {
+        if (!previewOverlay.classList.contains('active')) return;
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            flushSave();
+        }
+    });
+    // Flush save if the tab is closed / navigated away. fetch(keepalive:true)
+    // lets the request finish even after the page unloads.
+    window.addEventListener('beforeunload', () => {
+        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+        if (!currentFileData) return;
+        const content = getCurrentContent();
+        if (content == null || content === lastSavedContent) return;
+        try {
+            fetch(`${BASE}/api/save`, {
+                method: 'PUT',
+                credentials: 'same-origin',
+                keepalive: true,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-XSRFToken': XSRF,
+                    'ngrok-skip-browser-warning': '1',
+                },
+                body: JSON.stringify({ path: currentFileData.path, content }),
+            });
+        } catch {}
     });
 
     async function renderPreviewMode(data) {
+        isInlineEditing = false;
         const isCsv = CSV_EXTS.includes(data.extension);
-        const isSchedule = SCHEDULE_EXTS.includes(data.extension);
         previewBody.classList.toggle('csv-mode', isCsv);
         previewColorRules.style.display = isCsv ? '' : 'none';
         if (isCsv) {
             await loadCsvConfig();
             renderCsvViewer(data.content);
         } else if (TIMETABLE_EXTS.includes(data.extension)) {
-            renderTimetable(data.content, data.path);
+            renderTimetable(data.content, data.path, { initial: true });
         } else if (DATETABLE_EXTS.includes(data.extension)) {
-            renderDatetable(data.content, data.path);
+            renderDatetable(data.content, data.path, { initial: true });
         } else if (MD_EXTS.includes(data.extension) && typeof marked !== 'undefined') {
-            previewBody.innerHTML = `<div class="markdown-body">${marked.parse(data.content)}</div>`;
+            previewBody.innerHTML = `<div class="markdown-body editable-hint">${marked.parse(data.content)}</div>`;
             if (typeof hljs !== 'undefined') {
                 previewBody.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
             }
+            attachClickToEdit(previewBody.querySelector('.markdown-body'));
+        } else if (EDITABLE_EXTS.includes(data.extension)) {
+            previewBody.innerHTML = `<pre class="file-raw editable-hint">${escHtml(data.content)}</pre>`;
+            attachClickToEdit(previewBody.querySelector('.file-raw'));
         } else {
             previewBody.innerHTML = `<pre class="file-raw">${escHtml(data.content)}</pre>`;
         }
-        // Schedule types: always show save button
-        if (isSchedule) {
-            previewSave.style.display = '';
-            previewEdit.style.display = 'none';
+    }
+
+    /** Attach a single-click listener that swaps the rendered view for the
+     *  inline textarea. Used for markdown and file-raw containers. */
+    function attachClickToEdit(el) {
+        if (!el) return;
+        el.addEventListener('click', (e) => {
+            // Don't hijack clicks on links — let them navigate normally
+            if (e.target.closest('a')) return;
+            const rect = previewBody.getBoundingClientRect();
+            const clickY = (e.clientY - rect.top) + previewBody.scrollTop;
+            enterInlineEdit(clickY);
+        });
+    }
+
+    // ========== SNAPSHOT HISTORY MODAL ==========
+    function formatSnapshotTs(ts) {
+        // 20260409-120543-123 → 2026-04-09 12:05:43
+        if (!ts || ts.length < 15) return ts;
+        const y = ts.slice(0, 4), m = ts.slice(4, 6), d = ts.slice(6, 8);
+        const hh = ts.slice(9, 11), mm = ts.slice(11, 13), ss = ts.slice(13, 15);
+        return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+    }
+
+    function formatByteSize(n) {
+        if (n == null) return '';
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    async function openHistoryModal() {
+        if (!currentFileData) return;
+        // Flush pending edits first so they're visible as the newest snapshot
+        await flushSave({ silent: true });
+        selectedSnapshotTs = null;
+        selectedSnapshotContent = null;
+        historyRestore.disabled = true;
+        historyPreview.innerHTML = '<div class="history-preview-empty">Select a snapshot to preview</div>';
+        historyList.innerHTML = '<div class="history-list-empty">Loading…</div>';
+        historyOverlay.classList.add('active');
+        try {
+            const res = await fetch(
+                `${BASE}/api/snapshots?path=${encodeURIComponent(currentFileData.path)}`,
+                fetchOpts
+            );
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            currentSnapshots = data.snapshots || [];
+            if (currentSnapshots.length === 0) {
+                historyList.innerHTML = '<div class="history-list-empty">No snapshots yet.<br>Make a change to create one.</div>';
+                return;
+            }
+            historyList.innerHTML = currentSnapshots.map((s) => `
+                <div class="history-item" data-ts="${escHtml(s.ts)}">
+                    <div class="history-item-ts">${formatSnapshotTs(s.ts)}</div>
+                    <div class="history-item-size">${formatByteSize(s.size)}</div>
+                </div>
+            `).join('');
+            historyList.querySelectorAll('.history-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    historyList.querySelectorAll('.history-item').forEach(x => x.classList.remove('active'));
+                    el.classList.add('active');
+                    loadSnapshotContent(el.dataset.ts);
+                });
+            });
+        } catch (err) {
+            historyList.innerHTML = `<div class="history-list-empty">Error: ${escHtml(err.message)}</div>`;
         }
     }
 
-    async function renderEditMode(data) {
-        const isCsv = CSV_EXTS.includes(data.extension);
-        previewBody.classList.toggle('csv-mode', isCsv);
-        if (isCsv) {
-            await loadCsvConfig();
-            renderCsvEditor(data.content);
-        } else if (SCHEDULE_EXTS.includes(data.extension)) {
-            // Schedule types are always interactive, no separate edit mode
-            renderPreviewMode(data);
-            return;
-        } else {
-            previewBody.innerHTML = `<textarea class="edit-textarea" spellcheck="false">${escHtml(data.content)}</textarea>`;
-            const ta = previewBody.querySelector('.edit-textarea');
-            ta.focus();
-            // Tab key support
-            ta.addEventListener('keydown', (e) => {
-                if (e.key === 'Tab') {
-                    e.preventDefault();
-                    const start = ta.selectionStart;
-                    ta.value = ta.value.substring(0, start) + '    ' + ta.value.substring(ta.selectionEnd);
-                    ta.selectionStart = ta.selectionEnd = start + 4;
-                }
-            });
+    async function loadSnapshotContent(ts) {
+        selectedSnapshotTs = ts;
+        selectedSnapshotContent = null;
+        historyRestore.disabled = true;
+        historyPreview.innerHTML = '<div class="history-preview-empty">Loading…</div>';
+        try {
+            const url = `${BASE}/api/snapshots/content?path=${encodeURIComponent(currentFileData.path)}&ts=${encodeURIComponent(ts)}`;
+            const res = await fetch(url, fetchOpts);
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            selectedSnapshotContent = data.content;
+            historyPreview.innerHTML = `<pre>${escHtml(data.content)}</pre>`;
+            historyRestore.disabled = false;
+        } catch (err) {
+            historyPreview.innerHTML = `<div class="history-preview-empty">Error: ${escHtml(err.message)}</div>`;
         }
     }
+
+    function closeHistoryModal() {
+        historyOverlay.classList.remove('active');
+        selectedSnapshotTs = null;
+        selectedSnapshotContent = null;
+    }
+
+    async function restoreSelectedSnapshot() {
+        if (!currentFileData || selectedSnapshotContent == null) return;
+        // Save restores as a normal write — the server takes a fresh snapshot
+        // of the current (pre-restore) content first, so the restore itself
+        // is reversible.
+        try {
+            const res = await fetch(`${BASE}/api/save`, mutFetchOpts({
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: currentFileData.path,
+                    content: selectedSnapshotContent,
+                }),
+            }));
+            if (!res.ok) throw new Error(await res.text());
+            currentFileData.content = selectedSnapshotContent;
+            lastSavedContent = selectedSnapshotContent;
+            setSaveStatus('saved');
+            closeHistoryModal();
+            // Re-render the preview with the restored content
+            renderPreviewMode(currentFileData);
+        } catch (err) {
+            alert('Restore failed: ' + err.message);
+        }
+    }
+
+    previewHistory.addEventListener('click', openHistoryModal);
+    historyClose.addEventListener('click', closeHistoryModal);
+    historyOverlay.addEventListener('click', (e) => {
+        if (e.target === historyOverlay) closeHistoryModal();
+    });
+    historyRestore.addEventListener('click', restoreSelectedSnapshot);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && historyOverlay.classList.contains('active')) {
+            closeHistoryModal();
+        }
+    });
 
     async function loadPreviewContent(path) {
         try {
             const ext = '.' + path.split('.').pop().toLowerCase();
             const parts = path.split('/');
             previewBreadcrumb.innerHTML = parts.map((p) => `<span>${escHtml(p)}</span>`).join(' / ');
+            previewHistory.style.display = 'none';
 
             if (IMAGE_EXTS.includes(ext)) {
-                previewEdit.style.display = 'none';
                 const imgUrl = `${BASE}/api/file?path=${encodeURIComponent(path)}`;
                 const imgRes = await fetch(imgUrl, fetchOpts);
                 if (!imgRes.ok) throw new Error('Image load failed');
@@ -1127,10 +1366,10 @@
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             currentFileData = data;
+            lastSavedContent = data.content;
 
             // File too large for inline preview — offer download
             if (data.too_large) {
-                previewEdit.style.display = 'none';
                 previewBody.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-secondary);">
                     <p style="font-size:48px;margin-bottom:12px;">📦</p>
                     <p><strong>${escHtml(data.name)}</strong></p>
@@ -1141,11 +1380,10 @@
                 return;
             }
 
-            // Show edit button for editable files
+            // History button only for files that are editable (and therefore
+            // may have accumulated snapshots)
             if (EDITABLE_EXTS.includes(data.extension)) {
-                previewEdit.style.display = '';
-            } else {
-                previewEdit.style.display = 'none';
+                previewHistory.style.display = '';
             }
 
             renderPreviewMode(data);
@@ -1381,6 +1619,10 @@
         const rows = parseCsv(content);
         if (rows.length === 0) { previewBody.innerHTML = '<p style="padding:20px;color:var(--text-secondary);">Empty CSV</p>'; return; }
 
+        // Keep csvEditRows in sync with the viewer's initial state so
+        // getCurrentContent() can serialize even before editor mode is shown.
+        csvEditRows = rows.map(r => [...r]);
+
         const headers = rows[0];
         let dataRows = rows.slice(1);
         let sortCol = -1, sortAsc = true;
@@ -1526,22 +1768,26 @@
                     });
                 });
             });
+            // Click a cell text → switch to inline editor (click-to-edit).
+            // csvEditRows already mirrors the viewer state (including any
+            // checkbox mutations), so we just re-serialize and hand off.
+            previewBody.querySelectorAll('.csv-cell-text').forEach(span => {
+                span.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    renderCsvEditor(csvStringify(csvEditRows));
+                });
+            });
             // Bind viewer checkboxes (interactive in view mode)
             previewBody.querySelectorAll('.csv-viewer-cb').forEach(cb => {
-                cb.addEventListener('change', async () => {
+                cb.addEventListener('change', () => {
                     const origIdx = parseInt(cb.dataset.orig);
                     const ci = parseInt(cb.dataset.col);
                     dataRows[origIdx][ci] = cb.checked ? 'true' : 'false';
-                    // Rebuild full content and save
-                    const allRows = [headers, ...dataRows];
-                    const content = csvStringify(allRows);
-                    try {
-                        await fetch(`${BASE}/api/save`, mutFetchOpts({
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ path: filePath, content }),
-                        }));
-                    } catch (e) {}
+                    // csvEditRows is the serialization source of truth — keep
+                    // it in sync with the viewer's local dataRows so the
+                    // auto-save pipeline can pick up the change.
+                    csvEditRows = [headers, ...dataRows].map(r => [...r]);
+                    scheduleSave();
                     render();
                 });
             });
@@ -1563,6 +1809,7 @@
         if (csvEditRows.length > 1) {
             actions.push({ label: 'Delete Row', cls: 'danger', action: () => {
                 csvEditRows.splice(rowIdx, 1);
+                scheduleSave();
                 renderCsvEditTable();
             }});
         }
@@ -1576,6 +1823,7 @@
                     cbCols = cbCols.filter(c => c !== colIdx).map(c => c > colIdx ? c - 1 : c);
                     saveCsvCheckboxCols(filePath, cbCols);
                 }
+                scheduleSave();
                 renderCsvEditTable();
             }});
         }
@@ -1662,7 +1910,11 @@
         previewBody.querySelectorAll('.csv-cell').forEach(td => {
             td.addEventListener('blur', () => {
                 const ri = parseInt(td.dataset.row), ci = parseInt(td.dataset.col);
-                csvEditRows[ri][ci] = td.textContent;
+                const newVal = td.textContent;
+                if (csvEditRows[ri][ci] !== newVal) {
+                    csvEditRows[ri][ci] = newVal;
+                    scheduleSave();
+                }
             });
             td.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -1683,11 +1935,13 @@
         // Add row
         document.getElementById('csvAddRow').addEventListener('click', () => {
             csvEditRows.push(new Array(csvEditRows[0].length).fill(''));
+            scheduleSave();
             renderCsvEditTable();
         });
         // Add column
         document.getElementById('csvAddCol').addEventListener('click', () => {
             csvEditRows.forEach(r => r.push(''));
+            scheduleSave();
             renderCsvEditTable();
         });
         // Right-click context menu for delete
@@ -1725,6 +1979,7 @@
                     saveCsvColorRules(filePath, rules);
                 }
                 saveCsvCheckboxCols(filePath, checkboxCols);
+                scheduleSave();
                 renderCsvEditTable();
             });
         });
@@ -1733,6 +1988,7 @@
             cb.addEventListener('change', () => {
                 const ri = parseInt(cb.dataset.row), ci = parseInt(cb.dataset.col);
                 csvEditRows[ri][ci] = cb.checked ? 'true' : 'false';
+                scheduleSave();
             });
         });
         // Drag to reorder rows
@@ -1773,6 +2029,7 @@
                     if (toIdx !== fromIdx) {
                         const [moved] = csvEditRows.splice(fromIdx, 1);
                         csvEditRows.splice(toIdx, 0, moved);
+                        scheduleSave();
                         renderCsvEditTable();
                     }
                 };
@@ -1828,6 +2085,7 @@
                             const [moved] = r.splice(fromIdx, 1);
                             r.splice(toIdx, 0, moved);
                         });
+                        scheduleSave();
                         renderCsvEditTable();
                     }
                 };
@@ -1923,11 +2181,16 @@
 
     function ttSlotIndex(time) { return ttTimeSlots().indexOf(time); }
 
-    function renderTimetable(content, filePath) {
+    function renderTimetable(content, filePath, opts) {
+        const initial = opts && opts.initial;
         try { _timetableData = JSON.parse(content); } catch { _timetableData = { people: [], schedule: {} }; }
         if (!_timetableData.people) _timetableData.people = [];
         if (!_timetableData.schedule) _timetableData.schedule = {};
         TT_DAYS.forEach(d => { if (!_timetableData.schedule[d]) _timetableData.schedule[d] = {}; });
+        // Any re-render triggered by a mutation in the UI means the data
+        // diverged from disk — schedule a save. The first render after
+        // loading the file passes { initial: true } to skip this.
+        if (!initial && typeof scheduleSave === 'function') scheduleSave();
 
         const people = _timetableData.people;
         const schedule = _timetableData.schedule;
@@ -2125,10 +2388,13 @@
     let _datetableData = null;
     let _dtCurrentMonth = null; // { year, month } for navigation
 
-    function renderDatetable(content, filePath) {
+    function renderDatetable(content, filePath, opts) {
+        const initial = opts && opts.initial;
         try { _datetableData = JSON.parse(content); } catch { _datetableData = { people: [], events: {} }; }
         if (!_datetableData.people) _datetableData.people = [];
         if (!_datetableData.events) _datetableData.events = {};
+        // Mutation-triggered re-render → save. Initial load passes { initial: true }.
+        if (!initial && typeof scheduleSave === 'function') scheduleSave();
 
         const people = _datetableData.people;
         people.forEach((p, i) => { if (!p.color) p.color = TT_COLORS[i % TT_COLORS.length]; });
