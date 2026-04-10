@@ -1213,7 +1213,7 @@
     const BLOCK_TAGS = new Set([
         'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
         'blockquote', 'pre', 'ul', 'ol', 'li', 'hr', 'table', 'div',
-        'details',
+        'details', 'section',
     ]);
 
     /** Walk up from a node to the enclosing block element inside the editor. */
@@ -1394,6 +1394,23 @@
                 return `<details>\n<summary>${summaryMd}</summary>\n\n${body}\n\n</details>`;
             }
             case 'div': case 'section': {
+                // Callout block — preserve as inline HTML so re-opens
+                // re-render with the icon + styling intact.
+                if (block.classList && block.classList.contains('callout')) {
+                    const icon = block.getAttribute('data-icon') || '💡';
+                    const content = block.querySelector(':scope > .callout-content') || block;
+                    const innerMd = Array.from(content.childNodes)
+                        .map(n => {
+                            if (n.nodeType === Node.TEXT_NODE) return n.textContent.trim();
+                            if (n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName.toLowerCase())) {
+                                return blockToMd(n);
+                            }
+                            return n.nodeType === Node.ELEMENT_NODE ? inlineToMd(n) : '';
+                        })
+                        .filter(Boolean)
+                        .join('\n\n');
+                    return `<div class="callout" data-icon="${escHtml(icon)}">\n\n${innerMd}\n\n</div>`;
+                }
                 // Transparent: recurse
                 return Array.from(block.childNodes)
                     .map(n => n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName.toLowerCase())
@@ -1610,6 +1627,25 @@
             block.replaceWith(details);
             placeCaretAtStart(summary);
             return details;
+        }
+        if (kind === 'callout') {
+            const callout = document.createElement('div');
+            callout.className = 'callout';
+            callout.setAttribute('data-icon', '💡');
+            const icon = document.createElement('span');
+            icon.className = 'callout-icon';
+            icon.setAttribute('contenteditable', 'false');
+            icon.textContent = '💡';
+            const content = document.createElement('div');
+            content.className = 'callout-content';
+            const inside = document.createElement('p');
+            inside.innerHTML = inner === '<br>' ? '<br>' : inner;
+            content.appendChild(inside);
+            callout.appendChild(icon);
+            callout.appendChild(content);
+            block.replaceWith(callout);
+            placeCaretAtStart(inside);
+            return callout;
         }
         if (kind === 'pre') {
             const pre = document.createElement('pre');
@@ -1928,6 +1964,243 @@
         setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
     }
 
+    // ==================== Cmd+A two-stage select ====================
+    /** First press selects the current block's contents. Second press
+     *  (when the current block is already fully selected) extends to the
+     *  whole editor. */
+    function twoStageSelectAll(editor) {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return;
+        const range = sel.getRangeAt(0);
+        const block = closestBlock(range.startContainer, editor);
+        if (!block) {
+            // Fall back to full editor
+            const r = document.createRange();
+            r.selectNodeContents(editor);
+            sel.removeAllRanges();
+            sel.addRange(r);
+            return;
+        }
+        // Is the current block already fully selected?
+        const fullBlockRange = document.createRange();
+        fullBlockRange.selectNodeContents(block);
+        const already =
+            range.startContainer === fullBlockRange.startContainer &&
+            range.startOffset === fullBlockRange.startOffset &&
+            range.endContainer === fullBlockRange.endContainer &&
+            range.endOffset === fullBlockRange.endOffset;
+        // Loose check: compare string lengths (selection spans block contents)
+        const selectedText = sel.toString();
+        const blockText = block.textContent;
+        const looseFull = selectedText.length > 0 && selectedText.length >= blockText.length;
+        if (already || looseFull) {
+            // Second press → select all blocks
+            const r = document.createRange();
+            r.selectNodeContents(editor);
+            sel.removeAllRanges();
+            sel.addRange(r);
+            return;
+        }
+        // First press → select just the block
+        sel.removeAllRanges();
+        sel.addRange(fullBlockRange);
+    }
+
+    // ==================== Block selection mode (Esc) ====================
+    // Pressing Esc puts the editor in "block selected" state — the current
+    // block gets a visual outline, arrow keys navigate between blocks,
+    // Backspace/Delete removes the selected block, Enter returns to text
+    // editing, another Esc blurs.
+    let _selectedBlock = null;
+
+    function clearBlockSelection() {
+        if (_selectedBlock) {
+            _selectedBlock.classList.remove('block-selected');
+            _selectedBlock = null;
+        }
+    }
+    function selectBlock(block) {
+        clearBlockSelection();
+        if (!block) return;
+        block.classList.add('block-selected');
+        _selectedBlock = block;
+        // Collapse text selection so only the block outline is visible
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+    }
+    function enterBlockSelectionFromCaret(editor) {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return false;
+        const block = closestBlock(sel.getRangeAt(0).startContainer, editor);
+        if (!block) return false;
+        selectBlock(block);
+        return true;
+    }
+    /** Handle keydown while in block selection mode. Returns true if
+     *  consumed. */
+    function handleBlockSelectionKey(editor, e) {
+        if (!_selectedBlock) return false;
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            clearBlockSelection();
+            editor.blur();
+            return true;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            const next = _selectedBlock.nextElementSibling;
+            if (next && BLOCK_TAGS.has(next.tagName.toLowerCase())) selectBlock(next);
+            return true;
+        }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const prev = _selectedBlock.previousElementSibling;
+            if (prev && BLOCK_TAGS.has(prev.tagName.toLowerCase())) selectBlock(prev);
+            return true;
+        }
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+            e.preventDefault();
+            const target = _selectedBlock;
+            const next = target.nextElementSibling || target.previousElementSibling;
+            target.remove();
+            clearBlockSelection();
+            if (next) placeCaretAtStart(next);
+            scheduleSave();
+            return true;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const target = _selectedBlock;
+            clearBlockSelection();
+            placeCaretAtStart(target);
+            return true;
+        }
+        // Any other key → exit block selection and let the key reach the editor
+        clearBlockSelection();
+        return false;
+    }
+
+    // ==================== Smart paste ====================
+    const URL_RE = /^https?:\/\/[^\s]+$/i;
+
+    /** Handle paste event. Returns true if we handled it (so the default
+     *  paste should be suppressed). */
+    function handlePaste(editor, e) {
+        const cd = e.clipboardData || window.clipboardData;
+        if (!cd) return false;
+        const html = cd.getData('text/html');
+        const text = cd.getData('text/plain');
+
+        // 1. Pasting a bare URL into a non-collapsed selection → link it
+        if (text && URL_RE.test(text.trim())) {
+            const sel = window.getSelection();
+            if (sel.rangeCount && !sel.isCollapsed) {
+                e.preventDefault();
+                document.execCommand('createLink', false, text.trim());
+                return true;
+            }
+            // Collapsed caret + URL → insert a clickable link
+            if (sel.rangeCount && sel.isCollapsed) {
+                e.preventDefault();
+                const a = document.createElement('a');
+                a.href = text.trim();
+                a.textContent = text.trim();
+                sel.getRangeAt(0).insertNode(a);
+                // Move caret after the link
+                const r = document.createRange();
+                r.setStartAfter(a);
+                r.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(r);
+                return true;
+            }
+        }
+        // 2. Rich HTML → sanitize and insert. We keep structural tags but
+        //    strip all inline styles and dangerous attributes.
+        if (html) {
+            e.preventDefault();
+            const sanitized = sanitizePastedHtml(html);
+            if (sanitized) {
+                document.execCommand('insertHTML', false, sanitized);
+                return true;
+            }
+        }
+        // 3. Fall through to plain text insert (existing behavior)
+        if (text) {
+            e.preventDefault();
+            document.execCommand('insertText', false, text);
+            return true;
+        }
+        return false;
+    }
+
+    const ALLOWED_TAGS = new Set([
+        'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'strong', 'b', 'em', 'i', 'u', 'del', 's', 'strike', 'code',
+        'ul', 'ol', 'li', 'blockquote', 'pre', 'hr', 'a',
+        'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'img', 'details', 'summary', 'span',
+    ]);
+    function sanitizePastedHtml(raw) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = raw;
+        // Strip elements not in the allow-list; strip disallowed attrs
+        const walk = (el) => {
+            const children = Array.from(el.children);
+            children.forEach(walk);
+            if (!ALLOWED_TAGS.has(el.tagName.toLowerCase())) {
+                // Replace with its text content
+                const text = document.createTextNode(el.textContent || '');
+                el.replaceWith(text);
+                return;
+            }
+            // Remove inline styles except on <span> (keep color/bg) and drop
+            // everything except href/src/alt/type/checked/start
+            const keepAttrs = new Set(['href', 'src', 'alt', 'type', 'checked', 'start']);
+            Array.from(el.attributes).forEach(attr => {
+                if (!keepAttrs.has(attr.name.toLowerCase())) {
+                    if (el.tagName.toLowerCase() === 'span' && attr.name === 'style') return;
+                    el.removeAttribute(attr.name);
+                }
+            });
+        };
+        Array.from(tmp.children).forEach(walk);
+        return tmp.innerHTML;
+    }
+
+    // ==================== Callout block ====================
+    function insertCallout(editor) {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return;
+        const block = closestBlock(sel.getRangeAt(0).startContainer, editor);
+        if (!block) return;
+        const callout = document.createElement('div');
+        callout.className = 'callout';
+        callout.setAttribute('data-icon', '💡');
+        const icon = document.createElement('span');
+        icon.className = 'callout-icon';
+        icon.setAttribute('contenteditable', 'false');
+        icon.textContent = '💡';
+        icon.addEventListener('click', (e) => {
+            e.preventDefault();
+            const next = prompt('아이콘 입력 (이모지 하나):', callout.getAttribute('data-icon') || '💡');
+            if (next && next.length <= 4) {
+                callout.setAttribute('data-icon', next);
+                icon.textContent = next;
+                scheduleSave();
+            }
+        });
+        const content = document.createElement('div');
+        content.className = 'callout-content';
+        content.innerHTML = block.innerHTML || '<p><br></p>';
+        callout.appendChild(icon);
+        callout.appendChild(content);
+        block.replaceWith(callout);
+        // Caret into first child of content
+        const first = content.firstElementChild || content;
+        placeCaretAtStart(first);
+    }
+
     // Block type definitions shared by slash menu, Cmd+Option+N, and block menu
     const NOTION_BLOCKS = [
         { key: 'text',   label: '텍스트',     aliases: ['text', 'p', 'plain', 'para'],           icon: '📝', shortcut: '⌘⌥0', kind: 'p' },
@@ -1938,6 +2211,7 @@
         { key: 'ul',     label: '글머리 기호', aliases: ['bullet', 'ul', 'list', 'unordered'],   icon: '•',  shortcut: '⌘⌥5', kind: 'ul' },
         { key: 'ol',     label: '번호 매기기', aliases: ['number', 'ol', 'ordered'],             icon: '1.', shortcut: '⌘⌥6', kind: 'ol' },
         { key: 'toggle', label: '토글',        aliases: ['toggle', 'details', 'collapse'],       icon: '▸',  shortcut: '⌘⌥7', kind: 'toggle' },
+        { key: 'callout',label: '콜아웃',      aliases: ['callout', 'note', 'tip', 'info'],      icon: '💡', shortcut: '',    kind: 'callout' },
         { key: 'quote',  label: '인용',        aliases: ['quote', 'blockquote', '"'],            icon: '❝',  shortcut: '',    kind: 'blockquote' },
         { key: 'code',   label: '코드',        aliases: ['code', 'pre', '```'],                  icon: '⟨⟩', shortcut: '⌘⌥8', kind: 'pre' },
         { key: 'hr',     label: '구분선',      aliases: ['divider', 'hr', '---'],                icon: '—',  shortcut: '',    kind: 'hr' },
@@ -2348,6 +2622,8 @@
         editor.addEventListener('keydown', (e) => {
             // Slash menu consumes keys first (Arrow/Enter/Escape)
             if (_slashState && handleSlashMenuKey(e)) return;
+            // Block selection mode intercepts most keys
+            if (_selectedBlock && handleBlockSelectionKey(editor, e)) return;
 
             if (e.key === 'Enter' && !e.shiftKey) {
                 if (tryEnterBehavior(editor, e)) return;
@@ -2366,6 +2642,11 @@
             if (e.key === 'Escape') {
                 if (_blockMenuEl) { e.preventDefault(); closeBlockMenu(); return; }
                 if (_colorPickerEl) { e.preventDefault(); closeColorPicker(); return; }
+                // Enter block selection mode instead of blurring
+                if (!_selectedBlock && enterBlockSelectionFromCaret(editor)) {
+                    e.preventDefault();
+                    return;
+                }
                 e.preventDefault();
                 editor.blur();
                 flushSave();
@@ -2380,6 +2661,12 @@
             if (k === 'h' && e.shiftKey) {
                 e.preventDefault();
                 applyLastColor();
+                return;
+            }
+            // Cmd+A — two-stage select (block → all)
+            if (k === 'a' && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                twoStageSelectAll(editor);
                 return;
             }
 
@@ -2496,12 +2783,16 @@
             flushSave();
         });
 
-        // Paste: strip rich HTML formatting, paste as plain text. Users who
-        // paste from Word/Notion/etc. won't inherit wild inline styles.
+        // Smart paste: URL → link, rich HTML → sanitized insert, plain
+        // text → literal. Replaces the previous "always plain text" behavior.
         editor.addEventListener('paste', (e) => {
-            e.preventDefault();
-            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-            if (text) document.execCommand('insertText', false, text);
+            handlePaste(editor, e);
+            scheduleSave();
+        });
+
+        // Clicking anywhere in the editor clears block selection mode
+        editor.addEventListener('mousedown', () => {
+            if (_selectedBlock) clearBlockSelection();
         });
     }
 
