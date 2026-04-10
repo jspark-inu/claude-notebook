@@ -1116,6 +1116,94 @@ button:focus-visible,
 .selection-toolbar button i { font-style: italic; }
 .selection-toolbar button u { text-decoration: underline; text-underline-offset: 2px; }
 .selection-toolbar button s { text-decoration: line-through; }
+.selection-toolbar button .st-color {
+    font-weight: 700;
+    background: linear-gradient(135deg, #e03e3e 0%, #d9730d 50%, #0b6e99 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+/* =========================================================================
+   Color picker — Notion-style text/background palette
+   ========================================================================= */
+.color-picker {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.08);
+    padding: 6px 0;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    min-width: 200px;
+    max-width: 220px;
+    max-height: 440px;
+    overflow-y: auto;
+}
+.color-picker .cp-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-secondary);
+    padding: 8px 14px 4px;
+    user-select: none;
+}
+.color-picker .cp-swatches {
+    display: flex;
+    flex-direction: column;
+    padding: 0 6px 4px;
+}
+.color-picker .cp-swatch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    user-select: none;
+}
+.color-picker .cp-swatch:hover { background: var(--accent-light); }
+.color-picker .cp-sample {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+.color-picker .cp-label {
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Notion color utility — so toolbar's color button preview uses the same
+   palette when no selection exists */
+.notion-color-gray { color: #9b9a97; }
+.notion-color-brown { color: #64473a; }
+.notion-color-orange { color: #d9730d; }
+.notion-color-yellow { color: #dfab01; }
+.notion-color-green { color: #0f7b6c; }
+.notion-color-blue { color: #0b6e99; }
+.notion-color-purple { color: #6940a5; }
+.notion-color-pink { color: #ad1a72; }
+.notion-color-red { color: #e03e3e; }
+.notion-bg-gray { background: #f1f1ef; }
+.notion-bg-brown { background: #f4eeee; }
+.notion-bg-orange { background: #faebdd; }
+.notion-bg-yellow { background: #fbf3db; }
+.notion-bg-green { background: #ddedea; }
+.notion-bg-blue { background: #ddebf1; }
+.notion-bg-purple { background: #eae4f2; }
+.notion-bg-pink { background: #f4dfeb; }
+.notion-bg-red { background: #fbe4e4; }
 
 /* =========================================================================
    Link input — floating URL input for Cmd+K / toolbar link button

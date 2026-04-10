@@ -1271,6 +1271,16 @@
                     case 'input':
                         // task-list checkbox — handled by the containing <li>
                         break;
+                    case 'span': {
+                        // Preserve color / background spans as inline HTML.
+                        // Notion-style colors are the main case; we pass the
+                        // style attribute through verbatim so marked.js
+                        // re-renders them on reload.
+                        const style = node.getAttribute('style');
+                        if (style) out += `<span style="${style}">${inner}</span>`;
+                        else out += inner;
+                        break;
+                    }
                     default:
                         out += inner;
                 }
@@ -1635,6 +1645,289 @@
         if (block) convertBlockTo(editor, block, kind);
     }
 
+    // ==================== Inline live markdown ====================
+    // When the user types the CLOSING marker of an inline markdown pattern,
+    // detect the pair and swap it for the corresponding element. Runs only
+    // after non-IME single-character insertions so Korean composition isn't
+    // disrupted.
+    //
+    // Triggers (after typing the last character):
+    //   **text**   →  <strong>text</strong>
+    //   *text*     →  <em>text</em>          (not inside **...**)
+    //   `text`     →  <code>text</code>
+    //   ~~text~~   →  <del>text</del>
+
+    function isInsideTag(node, tagName) {
+        let n = node;
+        while (n) {
+            if (n.nodeType === Node.ELEMENT_NODE && n.tagName && n.tagName.toLowerCase() === tagName) return true;
+            n = n.parentNode;
+        }
+        return false;
+    }
+
+    /** Attempt inline markdown conversion at the current caret.
+     *  Returns true if something was converted (and scheduleSave should fire). */
+    function tryInlineMarkdown(editor, lastChar) {
+        if (!editor) return false;
+        if (lastChar !== '*' && lastChar !== '`' && lastChar !== '~') return false;
+        const sel = window.getSelection();
+        if (!sel.rangeCount || !sel.isCollapsed) return false;
+        const range = sel.getRangeAt(0);
+        const node = range.startContainer;
+        if (node.nodeType !== Node.TEXT_NODE) return false;
+        // Don't trigger inside code/pre
+        if (isInsideTag(node, 'code') || isInsideTag(node, 'pre')) return false;
+
+        const text = node.textContent;
+        const offset = range.startOffset;
+        if (offset === 0) return false;
+
+        // Patterns, ordered so longer-marker variants win
+        const patterns = [
+            { close: '**', open: '**', tag: 'strong' },
+            { close: '~~', open: '~~', tag: 'del' },
+            { close: '`',  open: '`',  tag: 'code' },
+            { close: '*',  open: '*',  tag: 'em' },
+        ];
+
+        for (const p of patterns) {
+            const cl = p.close.length;
+            if (offset < cl + 1) continue; // need at least "X*"
+            if (text.slice(offset - cl, offset) !== p.close) continue;
+            // Find the opening marker BEFORE the text body
+            const searchEnd = offset - cl;
+            let openIdx = -1;
+            // Scan backwards
+            for (let i = searchEnd - 1; i >= 0; i--) {
+                if (text.slice(i, i + p.open.length) === p.open) {
+                    // Reject degenerate case: adjacent markers (e.g. "****")
+                    if (i + p.open.length >= searchEnd) continue;
+                    // Reject `*` matching middle of `**` (em inside strong)
+                    if (p.tag === 'em') {
+                        if (text[i - 1] === '*' || text[i + 1] === '*') continue;
+                        if (text[searchEnd - 1] === '*' || text[searchEnd] === '*') continue;
+                    }
+                    openIdx = i;
+                    break;
+                }
+            }
+            if (openIdx === -1) continue;
+            const bodyStart = openIdx + p.open.length;
+            const bodyEnd = searchEnd;
+            const body = text.slice(bodyStart, bodyEnd);
+            if (!body) continue;
+            if (body.startsWith(' ') || body.endsWith(' ')) continue; // whitespace edges kill the match
+
+            // Build: before + <tag>body</tag> + after
+            const before = text.slice(0, openIdx);
+            const after = text.slice(offset);
+            const parent = node.parentNode;
+
+            const el = document.createElement(p.tag);
+            el.textContent = body;
+            const afterNode = document.createTextNode(after);
+
+            // Replace the original text node with: before text + el + after text
+            if (before) {
+                node.textContent = before;
+                parent.insertBefore(el, node.nextSibling);
+                parent.insertBefore(afterNode, el.nextSibling);
+            } else {
+                parent.insertBefore(el, node);
+                parent.insertBefore(afterNode, el.nextSibling);
+                parent.removeChild(node);
+            }
+
+            // Place caret after the new element (inside `afterNode` at 0)
+            const r = document.createRange();
+            r.setStart(afterNode, 0);
+            r.collapse(true);
+            const s = window.getSelection();
+            s.removeAllRanges();
+            s.addRange(r);
+            return true;
+        }
+        return false;
+    }
+
+    // ==================== Nested list Tab / Shift+Tab ====================
+    /** Indent the current <li> by moving it into a sublist of the
+     *  previous <li>. Returns true if handled. */
+    function tryIndentListItem(editor) {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return false;
+        let node = sel.getRangeAt(0).startContainer;
+        while (node && node !== editor) {
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'LI') break;
+            node = node.parentNode;
+        }
+        if (!node || node === editor || node.tagName !== 'LI') return false;
+        const li = node;
+        const prev = li.previousElementSibling;
+        if (!prev || prev.tagName !== 'LI') return false; // nothing to nest under
+        const parentList = li.parentNode; // <ul> or <ol>
+        const listTag = parentList.tagName.toLowerCase();
+        // Existing sublist on previous li? append to it. Otherwise create new.
+        let sublist = Array.from(prev.children).find(c => c.tagName === 'UL' || c.tagName === 'OL');
+        if (!sublist) {
+            sublist = document.createElement(listTag);
+            prev.appendChild(sublist);
+        }
+        sublist.appendChild(li);
+        placeCaretAtStart(li);
+        return true;
+    }
+
+    /** Outdent the current <li> — if it's inside a sublist, move it out
+     *  after the parent <li>. Returns true if handled. */
+    function tryOutdentListItem(editor) {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return false;
+        let node = sel.getRangeAt(0).startContainer;
+        while (node && node !== editor) {
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'LI') break;
+            node = node.parentNode;
+        }
+        if (!node || node === editor || node.tagName !== 'LI') return false;
+        const li = node;
+        const parentList = li.parentNode;
+        if (!parentList || (parentList.tagName !== 'UL' && parentList.tagName !== 'OL')) return false;
+        const grandLi = parentList.parentNode;
+        // Only outdent if we're actually in a nested list
+        if (!grandLi || grandLi.tagName !== 'LI') return false;
+        const grandList = grandLi.parentNode;
+        if (!grandList || (grandList.tagName !== 'UL' && grandList.tagName !== 'OL')) return false;
+        // Move any later siblings into a fresh sublist that travels with the li
+        const laterSiblings = [];
+        let sibling = li.nextElementSibling;
+        while (sibling) {
+            const next = sibling.nextElementSibling;
+            laterSiblings.push(sibling);
+            sibling = next;
+        }
+        if (laterSiblings.length) {
+            const newSub = document.createElement(parentList.tagName);
+            laterSiblings.forEach(s => newSub.appendChild(s));
+            li.appendChild(newSub);
+        }
+        parentList.removeChild(li);
+        // If the original parentList is now empty, remove it
+        if (!parentList.firstElementChild) parentList.remove();
+        // Insert li after grandLi
+        grandLi.parentNode.insertBefore(li, grandLi.nextSibling);
+        placeCaretAtStart(li);
+        return true;
+    }
+
+    // ==================== Text / background colors ====================
+    // Notion's 10-color palette. text + highlight variants each map to a
+    // CSS custom property set on the editor root (defined in style.css).
+    const NOTION_COLORS = [
+        { key: 'default', label: '기본',    textVar: '',                 bgVar: '' },
+        { key: 'gray',    label: '회색',    textVar: '#9b9a97',          bgVar: '#f1f1ef' },
+        { key: 'brown',   label: '갈색',    textVar: '#64473a',          bgVar: '#f4eeee' },
+        { key: 'orange',  label: '주황',    textVar: '#d9730d',          bgVar: '#faebdd' },
+        { key: 'yellow',  label: '노랑',    textVar: '#dfab01',          bgVar: '#fbf3db' },
+        { key: 'green',   label: '초록',    textVar: '#0f7b6c',          bgVar: '#ddedea' },
+        { key: 'blue',    label: '파랑',    textVar: '#0b6e99',          bgVar: '#ddebf1' },
+        { key: 'purple',  label: '보라',    textVar: '#6940a5',          bgVar: '#eae4f2' },
+        { key: 'pink',    label: '분홍',    textVar: '#ad1a72',          bgVar: '#f4dfeb' },
+        { key: 'red',     label: '빨강',    textVar: '#e03e3e',          bgVar: '#fbe4e4' },
+    ];
+    let _lastColor = null; // { mode: 'text'|'bg', color: colorKey }
+
+    function applyColorToSelection(mode, colorKey) {
+        const def = NOTION_COLORS.find(c => c.key === colorKey);
+        if (!def) return;
+        const sel = window.getSelection();
+        if (!sel.rangeCount || sel.isCollapsed) return;
+        const range = sel.getRangeAt(0);
+
+        // Default = strip color — unwrap any style spans in the range
+        if (colorKey === 'default') {
+            // execCommand removeFormat clears inline styles
+            document.execCommand('removeFormat');
+            scheduleSave();
+            return;
+        }
+
+        const el = document.createElement('span');
+        if (mode === 'text') el.style.color = def.textVar;
+        else el.style.backgroundColor = def.bgVar;
+        try {
+            el.appendChild(range.extractContents());
+            range.insertNode(el);
+            // Re-select the content
+            const s = window.getSelection();
+            s.removeAllRanges();
+            const r = document.createRange();
+            r.selectNodeContents(el);
+            s.addRange(r);
+            _lastColor = { mode, colorKey };
+            scheduleSave();
+        } catch { /* range across blocks — skip */ }
+    }
+
+    function applyLastColor() {
+        if (!_lastColor) return;
+        applyColorToSelection(_lastColor.mode, _lastColor.colorKey);
+    }
+
+    let _colorPickerEl = null;
+    function closeColorPicker() {
+        if (_colorPickerEl) _colorPickerEl.remove();
+        _colorPickerEl = null;
+    }
+    function openColorPicker(anchorRect) {
+        closeColorPicker();
+        const el = document.createElement('div');
+        el.className = 'color-picker';
+        el.style.position = 'fixed';
+        el.style.left = Math.round(anchorRect.left) + 'px';
+        el.style.top = Math.round(anchorRect.bottom + 6) + 'px';
+        el.style.zIndex = '5300';
+        const section = (title, mode) => {
+            let html = `<div class="cp-section-title">${title}</div><div class="cp-swatches">`;
+            NOTION_COLORS.forEach(c => {
+                const style = mode === 'text'
+                    ? (c.textVar ? `color:${c.textVar};` : '')
+                    : (c.bgVar ? `background:${c.bgVar};` : '');
+                html += `<div class="cp-swatch" data-mode="${mode}" data-key="${c.key}" title="${c.label}">
+                    <span class="cp-sample" style="${style}">A</span>
+                    <span class="cp-label">${c.label}</span>
+                </div>`;
+            });
+            html += '</div>';
+            return html;
+        };
+        el.innerHTML = section('글자 색', 'text') + section('배경 색', 'bg');
+        document.body.appendChild(el);
+        // Clamp to viewport
+        const r = el.getBoundingClientRect();
+        if (r.right > window.innerWidth - 8) {
+            el.style.left = Math.max(8, window.innerWidth - r.width - 8) + 'px';
+        }
+        if (r.bottom > window.innerHeight - 8) {
+            el.style.top = Math.round(anchorRect.top - r.height - 6) + 'px';
+        }
+        el.addEventListener('mousedown', (e) => {
+            const sw = e.target.closest('.cp-swatch');
+            if (!sw) return;
+            e.preventDefault();
+            applyColorToSelection(sw.dataset.mode, sw.dataset.key);
+            closeColorPicker();
+        });
+        _colorPickerEl = el;
+        const outside = (e) => {
+            if (!el.contains(e.target)) {
+                closeColorPicker();
+                document.removeEventListener('mousedown', outside, true);
+            }
+        };
+        setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
+    }
+
     // Block type definitions shared by slash menu, Cmd+Option+N, and block menu
     const NOTION_BLOCKS = [
         { key: 'text',   label: '텍스트',     aliases: ['text', 'p', 'plain', 'para'],           icon: '📝', shortcut: '⌘⌥0', kind: 'p' },
@@ -1817,12 +2110,18 @@
             <button data-cmd="strike" title="Strike (⌘⇧S)"><s>S</s></button>
             <button data-cmd="code" title="Code (⌘E)">&lt;/&gt;</button>
             <button data-cmd="link" title="Link (⌘K)">🔗</button>
+            <button data-cmd="color" title="색상 (⌘⇧H)"><span class="st-color">A</span>▾</button>
         `;
         // Use mousedown so we can preventDefault before the selection is lost
         el.addEventListener('mousedown', (e) => {
             const btn = e.target.closest('button');
             if (!btn) return;
             e.preventDefault();
+            if (btn.dataset.cmd === 'color') {
+                const rect = btn.getBoundingClientRect();
+                openColorPicker(rect);
+                return;
+            }
             applyInlineFormat(btn.dataset.cmd);
         });
         el.style.position = 'fixed';
@@ -2023,6 +2322,10 @@
         editor.setAttribute('contenteditable', 'true');
         editor.setAttribute('spellcheck', 'false');
 
+        let _isComposing = false;
+        editor.addEventListener('compositionstart', () => { _isComposing = true; });
+        editor.addEventListener('compositionend', () => { _isComposing = false; });
+
         editor.addEventListener('input', (e) => {
             // Opening the slash menu: user just typed "/"
             if (e.inputType === 'insertText' && e.data === '/' && !_slashState) {
@@ -2035,6 +2338,10 @@
             if (e.inputType === 'insertText' && e.data === ' ') {
                 tryMarkdownShortcut(editor);
             }
+            // Inline live markdown on a non-IME single character insertion
+            if (!_isComposing && e.inputType === 'insertText' && e.data && e.data.length === 1) {
+                tryInlineMarkdown(editor, e.data);
+            }
             scheduleSave();
         });
 
@@ -2045,8 +2352,20 @@
             if (e.key === 'Enter' && !e.shiftKey) {
                 if (tryEnterBehavior(editor, e)) return;
             }
+            // Tab / Shift+Tab — nested list indent/outdent
+            if (e.key === 'Tab') {
+                const handled = e.shiftKey
+                    ? tryOutdentListItem(editor)
+                    : tryIndentListItem(editor);
+                if (handled) {
+                    e.preventDefault();
+                    scheduleSave();
+                    return;
+                }
+            }
             if (e.key === 'Escape') {
                 if (_blockMenuEl) { e.preventDefault(); closeBlockMenu(); return; }
+                if (_colorPickerEl) { e.preventDefault(); closeColorPicker(); return; }
                 e.preventDefault();
                 editor.blur();
                 flushSave();
@@ -2056,6 +2375,13 @@
             const mod = e.ctrlKey || e.metaKey;
             if (!mod) return;
             const k = e.key.toLowerCase();
+
+            // Cmd+Shift+H — apply last used color
+            if (k === 'h' && e.shiftKey) {
+                e.preventDefault();
+                applyLastColor();
+                return;
+            }
 
             // Block type shortcuts: Cmd+Option+0..8
             if (e.altKey && BLOCK_KEY_SHORTCUTS[e.key] !== undefined) {
