@@ -19,8 +19,11 @@
     const previewClose = document.getElementById('previewClose');
     const previewDownload = document.getElementById('previewDownload');
     const previewStatus = document.getElementById('previewStatus');
+    const previewWordCount = document.getElementById('previewWordCount');
     const previewHistory = document.getElementById('previewHistory');
+    const previewHelp = document.getElementById('previewHelp');
     const previewColorRules = document.getElementById('previewColorRules');
+    const helpOverlay = document.getElementById('helpOverlay');
     const historyOverlay = document.getElementById('historyOverlay');
     const historyClose = document.getElementById('historyClose');
     const historyList = document.getElementById('historyList');
@@ -988,6 +991,8 @@
         previewOverlay.classList.add('active');
         finder.style.display = 'none';
         previewHistory.style.display = 'none';
+        previewHelp.style.display = 'none';
+        if (previewWordCount) { previewWordCount.textContent = ''; previewWordCount.style.display = 'none'; }
         previewColorRules.style.display = 'none';
         loadPreviewContent(path);
         updateHash(path);
@@ -1008,6 +1013,8 @@
         currentFileData = null;
         lastSavedContent = null;
         previewHistory.style.display = 'none';
+        previewHelp.style.display = 'none';
+        if (previewWordCount) { previewWordCount.textContent = ''; previewWordCount.style.display = 'none'; }
         previewColorRules.style.display = 'none';
         setSaveStatus('idle');
         updateHash(currentPath);
@@ -2963,6 +2970,160 @@
         '4': 'todo', '5': 'ul', '6': 'ol', '7': 'toggle', '8': 'pre',
     };
 
+    // ==================== Focus mode ====================
+    let _focusMode = localStorage.getItem('notionFocusMode') === '1';
+    function applyFocusMode(editor) {
+        if (!editor) return;
+        editor.classList.toggle('focus-mode', _focusMode);
+    }
+    function toggleFocusMode(editor) {
+        _focusMode = !_focusMode;
+        localStorage.setItem('notionFocusMode', _focusMode ? '1' : '0');
+        applyFocusMode(editor);
+    }
+    /** Tag the block the caret is currently in so focus mode can dim the rest. */
+    function updateFocusedBlock(editor) {
+        const sel = window.getSelection();
+        editor.querySelectorAll('.has-caret').forEach(b => b.classList.remove('has-caret'));
+        if (!sel.rangeCount) return;
+        const block = closestBlock(sel.getRangeAt(0).startContainer, editor);
+        if (block) block.classList.add('has-caret');
+    }
+
+    // ==================== Word count ====================
+    let _wordCountTimer = null;
+    function updateWordCount(editor) {
+        if (_wordCountTimer) clearTimeout(_wordCountTimer);
+        _wordCountTimer = setTimeout(() => {
+            if (!previewWordCount) return;
+            const text = (editor.textContent || '').trim();
+            if (!text) {
+                previewWordCount.textContent = '';
+                previewWordCount.style.display = 'none';
+                return;
+            }
+            // Word count: split on whitespace; character count: raw length
+            const words = text.split(/\s+/).filter(Boolean).length;
+            const chars = text.length;
+            previewWordCount.textContent = `${words.toLocaleString()} 단어 · ${chars.toLocaleString()}자`;
+            previewWordCount.style.display = '';
+        }, 250);
+    }
+
+    // ==================== Keyboard help modal ====================
+    const HELP_SECTIONS = [
+        {
+            title: '서식 (선택 후)',
+            items: [
+                ['⌘ B', '굵게'],
+                ['⌘ I', '기울임'],
+                ['⌘ U', '밑줄'],
+                ['⌘ ⇧ S', '취소선'],
+                ['⌘ E', '인라인 코드'],
+                ['⌘ K', '링크'],
+                ['⌘ ⇧ H', '마지막 색상 재적용'],
+            ],
+        },
+        {
+            title: '블록 타입 변환',
+            items: [
+                ['⌘ ⌥ 0', '텍스트'],
+                ['⌘ ⌥ 1 / 2 / 3', '제목 1 / 2 / 3'],
+                ['⌘ ⌥ 4', '할 일 목록'],
+                ['⌘ ⌥ 5', '글머리 목록'],
+                ['⌘ ⌥ 6', '번호 목록'],
+                ['⌘ ⌥ 7', '토글'],
+                ['⌘ ⌥ 8', '코드 블록'],
+            ],
+        },
+        {
+            title: '블록 조작',
+            items: [
+                ['⌘ D', '현재 블록 복제'],
+                ['⌘ ⇧ ↑ / ↓', '블록 위/아래로 이동'],
+                ['Tab / ⇧ Tab', '리스트 중첩 / 해제'],
+                ['Esc', '블록 선택 모드'],
+                ['⌘ A', '블록 전체 → 에디터 전체'],
+                ['⌘ /', '블록 메뉴'],
+                ['우클릭', '블록 메뉴'],
+            ],
+        },
+        {
+            title: '인라인 / 타이핑',
+            items: [
+                ['**굵게**', '굵게 (닫는 `**` 입력 시)'],
+                ['*기울임*', '기울임'],
+                ['`코드`', '인라인 코드'],
+                ['~~취소~~', '취소선'],
+                ['$수식$', '인라인 LaTeX'],
+                ['URL + space', '자동 링크'],
+            ],
+        },
+        {
+            title: '블록 단축키 (줄 시작)',
+            items: [
+                ['# / ## / ### + space', '제목 1 / 2 / 3'],
+                ['- / * / + + space', '글머리 목록'],
+                ['1. + space', '번호 목록'],
+                ['> / " + space', '인용'],
+                ['[] / [x] + space', '할 일'],
+                ['``` + space', '코드 블록'],
+                ['--- + Enter', '구분선'],
+            ],
+        },
+        {
+            title: '피커',
+            items: [
+                ['/', '블록 삽입 슬래시 메뉴'],
+                [':이름:', '이모지 선택'],
+                ['@', '날짜 / 시간 삽입'],
+                ['⌘ S', '즉시 저장'],
+                ['⌘ ⇧ F', '포커스 모드 토글'],
+            ],
+        },
+    ];
+    function openHelpModal() {
+        closeHelpModal();
+        helpOverlay.innerHTML = `
+            <div class="help-modal" role="dialog">
+                <div class="help-header">
+                    <h3>키보드 단축키</h3>
+                    <button class="help-close" aria-label="닫기">&times;</button>
+                </div>
+                <div class="help-body">
+                    ${HELP_SECTIONS.map(s => `
+                        <div class="help-section">
+                            <div class="help-section-title">${escHtml(s.title)}</div>
+                            <div class="help-items">
+                                ${s.items.map(([k, v]) => `
+                                    <div class="help-row">
+                                        <span class="help-key">${escHtml(k)}</span>
+                                        <span class="help-desc">${escHtml(v)}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+        helpOverlay.classList.add('active');
+        helpOverlay.querySelector('.help-close').addEventListener('click', closeHelpModal);
+        helpOverlay.addEventListener('click', (e) => {
+            if (e.target === helpOverlay) closeHelpModal();
+        });
+    }
+    function closeHelpModal() {
+        helpOverlay.classList.remove('active');
+        helpOverlay.innerHTML = '';
+    }
+    if (previewHelp) previewHelp.addEventListener('click', openHelpModal);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && helpOverlay.classList.contains('active')) {
+            closeHelpModal();
+        }
+    });
+
     // ==================== Slash menu ====================
     let _slashState = null; // { editor, block, anchorOffset, el, filter, index }
 
@@ -3372,6 +3533,7 @@
                 // Inline math on closing $
                 if (e.data === '$') tryInlineMath(editor);
             }
+            updateWordCount(editor);
             scheduleSave();
         });
 
@@ -3419,6 +3581,12 @@
             if (k === 'h' && e.shiftKey) {
                 e.preventDefault();
                 applyLastColor();
+                return;
+            }
+            // Cmd+Shift+F — toggle focus mode
+            if (k === 'f' && e.shiftKey) {
+                e.preventDefault();
+                toggleFocusMode(editor);
                 return;
             }
             // Cmd+A — two-stage select (block → all)
@@ -3526,8 +3694,10 @@
             }
             updateSelectionToolbar(editor);
             updateCodeLangIndicator(editor);
+            updateFocusedBlock(editor);
         };
         document.addEventListener('selectionchange', selectionHandler);
+        applyFocusMode(editor);
         // Reposition the code language indicator on scroll/resize
         window.addEventListener('scroll', () => updateCodeLangIndicator(editor), true);
         window.addEventListener('resize', () => updateCodeLangIndicator(editor));
@@ -3582,6 +3752,8 @@
             // Rehydrate math blocks (KaTeX re-render) and TOC click handlers
             rehydrateMathBlocks(editor);
             rehydrateTOCBlocks(editor);
+            // Initial word count display
+            updateWordCount(editor);
             // Use the serialized form as baseline so no-op opens don't dirty
             // the file just because the round-trip isn't byte-identical.
             lastSavedContent = domToMarkdown(editor);
@@ -3764,6 +3936,10 @@
             // may have accumulated snapshots)
             if (EDITABLE_EXTS.includes(data.extension)) {
                 previewHistory.style.display = '';
+            }
+            // Help button for markdown files (where all the shortcuts apply)
+            if (MD_EXTS.includes(data.extension)) {
+                previewHelp.style.display = '';
             }
 
             renderPreviewMode(data);

@@ -884,6 +884,20 @@ button:focus-visible,
     flex-shrink: 0;
 }
 .preview-status[data-state="idle"] { display: none; }
+/* Word count — small pill right of the save status */
+.preview-word-count {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.2px;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
 .preview-status[data-state="saved"]::after { content: '저장됨'; }
 .preview-status[data-state="dirty"]::after { content: '편집 중'; color: #b45309; }
 .preview-status[data-state="saving"]::after { content: '저장 중…'; }
@@ -967,7 +981,26 @@ button:focus-visible,
 .markdown-body.notion-editor h1:empty::before { content: '제목 1'; }
 .markdown-body.notion-editor h2:empty::before { content: '제목 2'; }
 .markdown-body.notion-editor h3:empty::before { content: '제목 3'; }
-.markdown-body.notion-editor p:empty::before { content: ''; }
+/* Notion convention: only the first empty paragraph shows a help hint */
+.markdown-body.notion-editor > p:first-child:empty::before,
+.markdown-body.notion-editor > p:first-child:has(br:only-child)::before {
+    content: '‘/’ 키로 블록 삽입, 그냥 입력해도 됩니다';
+    color: var(--text-secondary);
+    opacity: 0.4;
+    pointer-events: none;
+}
+.markdown-body.notion-editor p:empty:not(:first-child)::before { content: ''; }
+
+/* Focus mode — dims all top-level blocks except the one containing the
+   caret (tagged with .has-caret via JS selectionchange listener). */
+.markdown-body.notion-editor.focus-mode > *:not(.has-caret) {
+    opacity: 0.35;
+    transition: opacity 0.18s;
+}
+.markdown-body.notion-editor.focus-mode > .has-caret {
+    opacity: 1;
+    transition: opacity 0.18s;
+}
 /* A tiny left-margin sliver that subtly signals "you can type here",
    visible only on hover, without redecorating every block. */
 .markdown-body.notion-editor > *:hover {
@@ -1281,6 +1314,168 @@ button:focus-visible,
     text-align: center;
     color: var(--text-secondary);
     font-size: 12px;
+}
+
+/* =========================================================================
+   Keyboard help modal
+   ========================================================================= */
+.help-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.42);
+    z-index: 5500;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.help-overlay.active { display: flex; }
+.help-modal {
+    background: var(--bg);
+    border-radius: var(--radius-md);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.24);
+    width: min(760px, 100%);
+    max-height: min(720px, 90vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: var(--font-sans);
+}
+.help-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.help-header h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0;
+}
+.help-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    line-height: 1;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+.help-close:hover { color: var(--text); background: var(--sidebar-hover); }
+.help-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 26px;
+}
+.help-section {
+    break-inside: avoid;
+}
+.help-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-secondary);
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.help-items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.help-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12.5px;
+}
+.help-key {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--sidebar-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 7px;
+    color: var(--text);
+    flex-shrink: 0;
+    min-width: 90px;
+    white-space: nowrap;
+    text-align: center;
+}
+.help-desc {
+    color: var(--text);
+    font-size: 12px;
+}
+@media (max-width: 768px) {
+    .help-body { grid-template-columns: 1fr; }
+}
+
+/* =========================================================================
+   Dark mode — honor OS preference
+   ========================================================================= */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1a1a1a;
+        --sidebar-bg: #232323;
+        --sidebar-hover: #2e2e2e;
+        --sidebar-active: #383838;
+        --text: #e4e4e4;
+        --text-secondary: #8a8a8a;
+        --border: #333333;
+        --accent: #4bb8e2;
+        --accent-light: rgba(75, 184, 226, 0.12);
+        --code-bg: #232323;
+        --blockquote-border: #444;
+        --blockquote-bg: #2a2a2a;
+    }
+    /* Keep inline code readable on the darker background */
+    .markdown-body code {
+        background: #2e2e2e;
+        color: #f0f0f0;
+    }
+    .markdown-body pre {
+        background: #141414;
+    }
+    /* Callout in dark theme */
+    .markdown-body.notion-editor .callout {
+        background: #2a2518;
+        border-color: rgba(223, 171, 1, 0.28);
+    }
+    /* Math block */
+    .markdown-body.notion-editor .math-block {
+        background: #232323;
+    }
+    /* Selection toolbar stays dark — already themed */
+    /* Preview status pills get slightly lighter bg in dark mode */
+    .preview-status[data-state="saved"] {
+        color: #6ee7b7;
+        background: rgba(16, 185, 129, 0.14);
+    }
+    .preview-status[data-state="dirty"] {
+        color: #fcd34d;
+        background: rgba(245, 158, 11, 0.14);
+    }
+    .preview-status[data-state="saving"] { background: #2e2e2e; }
+    .preview-status[data-state="error"] {
+        color: #fca5a5;
+        background: rgba(220, 38, 38, 0.14);
+    }
+    /* History / help / meeting modals — keep the surface visible */
+    .history-overlay, .help-overlay, .meeting-modal-overlay {
+        background: rgba(0, 0, 0, 0.65);
+    }
+    /* File finder hover tint */
+    .finder-item:hover { background: #2e2e2e; }
+    /* Code language picker backdrop stays the same (already dark) */
 }
 
 /* =========================================================================
