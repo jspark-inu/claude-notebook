@@ -1272,6 +1272,13 @@
                         // task-list checkbox — handled by the containing <li>
                         break;
                     case 'span': {
+                        // Inline math → $...$ with the span preserved so
+                        // reloads still render via KaTeX
+                        if (node.classList && node.classList.contains('math-inline')) {
+                            const tex = node.getAttribute('data-tex') || '';
+                            out += `<span class="math-inline" data-tex="${escHtml(tex)}">$${tex}$</span>`;
+                            break;
+                        }
                         // Preserve color / background spans as inline HTML.
                         // Notion-style colors are the main case; we pass the
                         // style attribute through verbatim so marked.js
@@ -2386,7 +2393,8 @@
      *  proper KaTeX render). */
     async function rehydrateMathBlocks(editor) {
         const blocks = editor.querySelectorAll('.math-block[data-tex]');
-        if (blocks.length === 0) return;
+        const inlines = editor.querySelectorAll('.math-inline[data-tex]');
+        if (blocks.length === 0 && inlines.length === 0) return;
         await loadKatex();
         blocks.forEach(b => {
             if (!b.getAttribute('contenteditable')) b.setAttribute('contenteditable', 'false');
@@ -2399,6 +2407,14 @@
                     scheduleSave();
                 }
             });
+        });
+        inlines.forEach(sp => {
+            if (!sp.getAttribute('contenteditable')) sp.setAttribute('contenteditable', 'false');
+            const tex = sp.getAttribute('data-tex') || '';
+            try {
+                sp.innerHTML = '';
+                window.katex.render(tex, sp, { throwOnError: false, displayMode: false });
+            } catch { sp.textContent = '$' + tex + '$'; }
         });
     }
 
@@ -2468,6 +2484,427 @@
                 });
             });
         });
+    }
+
+    // ==================== Auto-link on typing ====================
+    // When the user types a space or enter right after a URL, wrap the URL
+    // in an <a>. Pattern matches http(s)://, ftp://, www., and bare
+    // foo.bar.com style URLs when the whole "word" looks like a hostname.
+    const AUTO_URL_RE = /(https?:\/\/[^\s<>]+|www\.[^\s<>]+)$/i;
+
+    function tryAutoLink(editor) {
+        const sel = window.getSelection();
+        if (!sel.rangeCount || !sel.isCollapsed) return false;
+        const range = sel.getRangeAt(0);
+        const node = range.startContainer;
+        if (node.nodeType !== Node.TEXT_NODE) return false;
+        // Don't trigger inside a link, code, or pre
+        if (isInsideTag(node, 'a') || isInsideTag(node, 'code') || isInsideTag(node, 'pre')) return false;
+
+        const text = node.textContent;
+        const offset = range.startOffset;
+        // Look at the characters just before the caret (up to the last space)
+        const head = text.slice(0, offset);
+        const match = head.match(AUTO_URL_RE);
+        if (!match) return false;
+        const url = match[1];
+        // Avoid double-trigger on URLs already ending with punctuation that
+        // shouldn't be part of the link (e.g. "see https://x.com.")
+        const cleaned = url.replace(/[.,;:!?)\]}'"]+$/, '');
+        if (!cleaned) return false;
+        const start = head.length - url.length;
+        const end = start + cleaned.length;
+
+        // Build: [head-before][link][rest]
+        const before = text.slice(0, start);
+        const after = text.slice(end);
+        const parent = node.parentNode;
+        const a = document.createElement('a');
+        a.href = cleaned.startsWith('www.') ? 'https://' + cleaned : cleaned;
+        a.textContent = cleaned;
+
+        const afterNode = document.createTextNode(after);
+        if (before) {
+            node.textContent = before;
+            parent.insertBefore(a, node.nextSibling);
+            parent.insertBefore(afterNode, a.nextSibling);
+        } else {
+            parent.insertBefore(a, node);
+            parent.insertBefore(afterNode, a.nextSibling);
+            parent.removeChild(node);
+        }
+        // Restore caret just after the link (before any trailing punctuation)
+        const r = document.createRange();
+        r.setStart(afterNode, 0);
+        r.collapse(true);
+        const s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        return true;
+    }
+
+    // ==================== Emoji shortcode ====================
+    // Type `:` to open a picker; filter by typing the emoji name.
+    // Subset of common emojis — ~150 entries, keyed by :name:
+    const EMOJIS = [
+        { k: 'smile', c: '😊' }, { k: 'smiley', c: '😃' }, { k: 'laughing', c: '😆' },
+        { k: 'grin', c: '😁' }, { k: 'wink', c: '😉' }, { k: 'heart_eyes', c: '😍' },
+        { k: 'joy', c: '😂' }, { k: 'rofl', c: '🤣' }, { k: 'thinking', c: '🤔' },
+        { k: 'neutral', c: '😐' }, { k: 'expressionless', c: '😑' }, { k: 'sleepy', c: '😪' },
+        { k: 'sob', c: '😭' }, { k: 'cry', c: '😢' }, { k: 'angry', c: '😠' },
+        { k: 'rage', c: '😡' }, { k: 'scream', c: '😱' }, { k: 'fear', c: '😨' },
+        { k: 'sweat', c: '😓' }, { k: 'relieved', c: '😌' }, { k: 'tired', c: '😫' },
+        { k: 'yawning', c: '🥱' }, { k: 'sunglasses', c: '😎' }, { k: 'nerd', c: '🤓' },
+        { k: 'cool', c: '🆒' }, { k: 'heart', c: '❤️' }, { k: 'heart_red', c: '❤️' },
+        { k: 'blue_heart', c: '💙' }, { k: 'green_heart', c: '💚' }, { k: 'yellow_heart', c: '💛' },
+        { k: 'purple_heart', c: '💜' }, { k: 'orange_heart', c: '🧡' }, { k: 'black_heart', c: '🖤' },
+        { k: 'sparkling_heart', c: '💖' }, { k: 'heartbeat', c: '💓' }, { k: 'broken_heart', c: '💔' },
+        { k: 'thumbs_up', c: '👍' }, { k: '+1', c: '👍' }, { k: 'thumbs_down', c: '👎' },
+        { k: '-1', c: '👎' }, { k: 'ok_hand', c: '👌' }, { k: 'clap', c: '👏' },
+        { k: 'wave', c: '👋' }, { k: 'pray', c: '🙏' }, { k: 'muscle', c: '💪' },
+        { k: 'fire', c: '🔥' }, { k: 'star', c: '⭐' }, { k: 'sparkles', c: '✨' },
+        { k: 'zap', c: '⚡' }, { k: 'sun', c: '☀️' }, { k: 'cloud', c: '☁️' },
+        { k: 'rain', c: '🌧️' }, { k: 'snowflake', c: '❄️' }, { k: 'rainbow', c: '🌈' },
+        { k: 'moon', c: '🌙' }, { k: 'earth', c: '🌍' }, { k: 'rocket', c: '🚀' },
+        { k: 'airplane', c: '✈️' }, { k: 'car', c: '🚗' }, { k: 'bike', c: '🚴' },
+        { k: 'walk', c: '🚶' }, { k: 'run', c: '🏃' }, { k: 'house', c: '🏠' },
+        { k: 'office', c: '🏢' }, { k: 'school', c: '🏫' }, { k: 'hospital', c: '🏥' },
+        { k: 'bank', c: '🏦' }, { k: 'shop', c: '🏪' }, { k: 'phone', c: '📞' },
+        { k: 'iphone', c: '📱' }, { k: 'computer', c: '💻' }, { k: 'desktop', c: '🖥️' },
+        { k: 'keyboard', c: '⌨️' }, { k: 'mouse', c: '🖱️' }, { k: 'printer', c: '🖨️' },
+        { k: 'camera', c: '📷' }, { k: 'video_camera', c: '📹' }, { k: 'tv', c: '📺' },
+        { k: 'book', c: '📖' }, { k: 'books', c: '📚' }, { k: 'notebook', c: '📓' },
+        { k: 'pencil', c: '✏️' }, { k: 'pen', c: '🖊️' }, { k: 'memo', c: '📝' },
+        { k: 'page', c: '📄' }, { k: 'clipboard', c: '📋' }, { k: 'folder', c: '📁' },
+        { k: 'file', c: '📃' }, { k: 'mailbox', c: '📬' }, { k: 'email', c: '📧' },
+        { k: 'envelope', c: '✉️' }, { k: 'package', c: '📦' }, { k: 'lock', c: '🔒' },
+        { k: 'unlock', c: '🔓' }, { k: 'key', c: '🔑' }, { k: 'bell', c: '🔔' },
+        { k: 'mute', c: '🔕' }, { k: 'speaker', c: '🔊' }, { k: 'headphones', c: '🎧' },
+        { k: 'microphone', c: '🎤' }, { k: 'music', c: '🎵' }, { k: 'guitar', c: '🎸' },
+        { k: 'piano', c: '🎹' }, { k: 'drum', c: '🥁' }, { k: 'art', c: '🎨' },
+        { k: 'clapper', c: '🎬' }, { k: 'game', c: '🎮' }, { k: 'dart', c: '🎯' },
+        { k: 'trophy', c: '🏆' }, { k: 'medal', c: '🏅' }, { k: 'gold', c: '🥇' },
+        { k: 'silver', c: '🥈' }, { k: 'bronze', c: '🥉' }, { k: 'soccer', c: '⚽' },
+        { k: 'basketball', c: '🏀' }, { k: 'baseball', c: '⚾' }, { k: 'tennis', c: '🎾' },
+        { k: 'coffee', c: '☕' }, { k: 'tea', c: '🍵' }, { k: 'beer', c: '🍺' },
+        { k: 'wine', c: '🍷' }, { k: 'cocktail', c: '🍸' }, { k: 'pizza', c: '🍕' },
+        { k: 'burger', c: '🍔' }, { k: 'fries', c: '🍟' }, { k: 'hotdog', c: '🌭' },
+        { k: 'sushi', c: '🍣' }, { k: 'rice', c: '🍚' }, { k: 'ramen', c: '🍜' },
+        { k: 'bread', c: '🍞' }, { k: 'cake', c: '🎂' }, { k: 'cookie', c: '🍪' },
+        { k: 'apple', c: '🍎' }, { k: 'banana', c: '🍌' }, { k: 'grapes', c: '🍇' },
+        { k: 'orange', c: '🍊' }, { k: 'strawberry', c: '🍓' }, { k: 'watermelon', c: '🍉' },
+        { k: 'dog', c: '🐶' }, { k: 'cat', c: '🐱' }, { k: 'mouse_animal', c: '🐭' },
+        { k: 'bear', c: '🐻' }, { k: 'panda', c: '🐼' }, { k: 'koala', c: '🐨' },
+        { k: 'lion', c: '🦁' }, { k: 'tiger', c: '🐯' }, { k: 'cow', c: '🐮' },
+        { k: 'pig', c: '🐷' }, { k: 'horse', c: '🐴' }, { k: 'fish', c: '🐟' },
+        { k: 'check', c: '✅' }, { k: 'cross', c: '❌' }, { k: 'warning', c: '⚠️' },
+        { k: 'info', c: 'ℹ️' }, { k: 'question', c: '❓' }, { k: 'exclamation', c: '❗' },
+        { k: 'bulb', c: '💡' }, { k: 'hundred', c: '💯' }, { k: 'eyes', c: '👀' },
+        { k: 'tada', c: '🎉' }, { k: 'gift', c: '🎁' }, { k: 'balloon', c: '🎈' },
+    ];
+
+    let _emojiState = null; // { editor, block, anchorOffset, el, filter, index }
+
+    function openEmojiPicker(editor) {
+        closeEmojiPicker();
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return;
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const el = document.createElement('div');
+        el.className = 'emoji-picker';
+        el.style.position = 'fixed';
+        el.style.left = Math.round(rect.left) + 'px';
+        el.style.top = Math.round(rect.bottom + 6) + 'px';
+        el.style.zIndex = '5000';
+        document.body.appendChild(el);
+        _emojiState = { editor, el, filter: '', index: 0 };
+        renderEmojiPicker();
+        const r = el.getBoundingClientRect();
+        if (r.bottom > window.innerHeight - 8) {
+            el.style.top = Math.round(rect.top - r.height - 6) + 'px';
+        }
+    }
+    function closeEmojiPicker() {
+        if (_emojiState && _emojiState.el) _emojiState.el.remove();
+        _emojiState = null;
+    }
+    function emojiFiltered() {
+        if (!_emojiState) return [];
+        const f = _emojiState.filter.toLowerCase();
+        if (!f) return EMOJIS.slice(0, 20);
+        return EMOJIS.filter(e => e.k.includes(f)).slice(0, 30);
+    }
+    function renderEmojiPicker() {
+        if (!_emojiState) return;
+        const items = emojiFiltered();
+        if (_emojiState.index >= items.length) _emojiState.index = 0;
+        _emojiState.el.innerHTML = items.length === 0
+            ? '<div class="ep-empty">일치하는 이모지 없음</div>'
+            : `<div class="ep-header">이모지${_emojiState.filter ? ' :' + escHtml(_emojiState.filter) : ''}</div>` +
+              items.map((e, i) => `
+                <div class="ep-item ${i === _emojiState.index ? 'active' : ''}" data-char="${escHtml(e.c)}">
+                    <span class="ep-char">${e.c}</span>
+                    <span class="ep-label">:${escHtml(e.k)}:</span>
+                </div>
+              `).join('');
+        _emojiState.el.querySelectorAll('.ep-item').forEach((el, i) => {
+            el.addEventListener('mousedown', (ev) => {
+                ev.preventDefault();
+                _emojiState.index = i;
+                commitEmojiPicker();
+            });
+            el.addEventListener('mouseenter', () => {
+                _emojiState.index = i;
+                _emojiState.el.querySelectorAll('.ep-item').forEach(x => x.classList.remove('active'));
+                el.classList.add('active');
+            });
+        });
+    }
+    function commitEmojiPicker() {
+        if (!_emojiState) return;
+        const items = emojiFiltered();
+        const item = items[_emojiState.index];
+        if (!item) { closeEmojiPicker(); return; }
+        // Strip ":filter" from the block and insert the emoji
+        const filter = _emojiState.filter;
+        stripColonQueryFromCaret(filter);
+        closeEmojiPicker();
+        document.execCommand('insertText', false, item.c);
+        scheduleSave();
+    }
+    function stripColonQueryFromCaret(filter) {
+        // Delete the `:` + filter text that's immediately before the caret
+        const toDelete = filter.length + 1;
+        for (let i = 0; i < toDelete; i++) {
+            document.execCommand('delete');
+        }
+    }
+    function handleEmojiPickerKey(e) {
+        if (!_emojiState) return false;
+        if (e.key === 'Escape') { e.preventDefault(); closeEmojiPicker(); return true; }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const items = emojiFiltered();
+            _emojiState.index = (_emojiState.index + 1) % Math.max(1, items.length);
+            renderEmojiPicker();
+            return true;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const items = emojiFiltered();
+            _emojiState.index = (_emojiState.index - 1 + items.length) % Math.max(1, items.length);
+            renderEmojiPicker();
+            return true;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            commitEmojiPicker();
+            return true;
+        }
+        return false;
+    }
+    function updateEmojiPickerFilter(editor) {
+        if (!_emojiState) return;
+        const sel = window.getSelection();
+        if (!sel.rangeCount) { closeEmojiPicker(); return; }
+        const node = sel.getRangeAt(0).startContainer;
+        if (node.nodeType !== Node.TEXT_NODE) { closeEmojiPicker(); return; }
+        const head = node.textContent.slice(0, sel.getRangeAt(0).startOffset);
+        const colonIdx = head.lastIndexOf(':');
+        if (colonIdx === -1) { closeEmojiPicker(); return; }
+        const after = head.slice(colonIdx + 1);
+        if (after.includes(' ') || after.includes(':')) { closeEmojiPicker(); return; }
+        if (after.length > 20) { closeEmojiPicker(); return; }
+        _emojiState.filter = after;
+        _emojiState.index = 0;
+        renderEmojiPicker();
+    }
+
+    // ==================== @date mention ====================
+    const MENTION_OPTIONS = [
+        { k: 'today',     label: '오늘',       build: () => formatDate(new Date()) },
+        { k: 'tomorrow',  label: '내일',       build: () => { const d = new Date(); d.setDate(d.getDate() + 1); return formatDate(d); } },
+        { k: 'yesterday', label: '어제',       build: () => { const d = new Date(); d.setDate(d.getDate() - 1); return formatDate(d); } },
+        { k: 'now',       label: '지금',       build: () => formatDateTime(new Date()) },
+        { k: 'time',      label: '현재 시간',   build: () => formatTime(new Date()) },
+        { k: 'week',      label: '이번 주',    build: () => formatWeek(new Date()) },
+    ];
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function formatDate(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+    function formatTime(d) { return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+    function formatDateTime(d) { return `${formatDate(d)} ${formatTime(d)}`; }
+    function formatWeek(d) {
+        const s = new Date(d); s.setDate(d.getDate() - d.getDay());
+        const e = new Date(s); e.setDate(s.getDate() + 6);
+        return `${formatDate(s)} ~ ${formatDate(e)}`;
+    }
+
+    let _mentionState = null;
+    function openMentionPicker(editor) {
+        closeMentionPicker();
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return;
+        const rect = sel.getRangeAt(0).getBoundingClientRect();
+        const el = document.createElement('div');
+        el.className = 'mention-picker';
+        el.style.position = 'fixed';
+        el.style.left = Math.round(rect.left) + 'px';
+        el.style.top = Math.round(rect.bottom + 6) + 'px';
+        el.style.zIndex = '5000';
+        document.body.appendChild(el);
+        _mentionState = { editor, el, filter: '', index: 0 };
+        renderMentionPicker();
+        const r = el.getBoundingClientRect();
+        if (r.bottom > window.innerHeight - 8) {
+            el.style.top = Math.round(rect.top - r.height - 6) + 'px';
+        }
+    }
+    function closeMentionPicker() {
+        if (_mentionState && _mentionState.el) _mentionState.el.remove();
+        _mentionState = null;
+    }
+    function mentionFiltered() {
+        if (!_mentionState) return [];
+        const f = _mentionState.filter.toLowerCase();
+        if (!f) return MENTION_OPTIONS;
+        return MENTION_OPTIONS.filter(m => m.k.includes(f) || m.label.includes(f));
+    }
+    function renderMentionPicker() {
+        if (!_mentionState) return;
+        const items = mentionFiltered();
+        if (_mentionState.index >= items.length) _mentionState.index = 0;
+        _mentionState.el.innerHTML = items.length === 0
+            ? '<div class="mp-empty">일치 없음</div>'
+            : `<div class="mp-header">날짜/시간${_mentionState.filter ? ' @' + escHtml(_mentionState.filter) : ''}</div>` +
+              items.map((m, i) => `
+                <div class="mp-item ${i === _mentionState.index ? 'active' : ''}" data-k="${m.k}">
+                    <span class="mp-icon">📅</span>
+                    <span class="mp-label">${escHtml(m.label)}</span>
+                    <span class="mp-preview">${escHtml(m.build())}</span>
+                </div>
+              `).join('');
+        _mentionState.el.querySelectorAll('.mp-item').forEach((el, i) => {
+            el.addEventListener('mousedown', (ev) => {
+                ev.preventDefault();
+                _mentionState.index = i;
+                commitMentionPicker();
+            });
+            el.addEventListener('mouseenter', () => {
+                _mentionState.index = i;
+                _mentionState.el.querySelectorAll('.mp-item').forEach(x => x.classList.remove('active'));
+                el.classList.add('active');
+            });
+        });
+    }
+    function commitMentionPicker() {
+        if (!_mentionState) return;
+        const items = mentionFiltered();
+        const item = items[_mentionState.index];
+        if (!item) { closeMentionPicker(); return; }
+        // Strip "@filter" and insert the date text
+        const filter = _mentionState.filter;
+        const toDelete = filter.length + 1;
+        for (let i = 0; i < toDelete; i++) document.execCommand('delete');
+        closeMentionPicker();
+        document.execCommand('insertText', false, item.build());
+        scheduleSave();
+    }
+    function handleMentionPickerKey(e) {
+        if (!_mentionState) return false;
+        if (e.key === 'Escape') { e.preventDefault(); closeMentionPicker(); return true; }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const items = mentionFiltered();
+            _mentionState.index = (_mentionState.index + 1) % Math.max(1, items.length);
+            renderMentionPicker();
+            return true;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const items = mentionFiltered();
+            _mentionState.index = (_mentionState.index - 1 + items.length) % Math.max(1, items.length);
+            renderMentionPicker();
+            return true;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            commitMentionPicker();
+            return true;
+        }
+        return false;
+    }
+    function updateMentionPickerFilter(editor) {
+        if (!_mentionState) return;
+        const sel = window.getSelection();
+        if (!sel.rangeCount) { closeMentionPicker(); return; }
+        const node = sel.getRangeAt(0).startContainer;
+        if (node.nodeType !== Node.TEXT_NODE) { closeMentionPicker(); return; }
+        const head = node.textContent.slice(0, sel.getRangeAt(0).startOffset);
+        const atIdx = head.lastIndexOf('@');
+        if (atIdx === -1) { closeMentionPicker(); return; }
+        const after = head.slice(atIdx + 1);
+        if (after.includes(' ') || after.includes('@')) { closeMentionPicker(); return; }
+        if (after.length > 20) { closeMentionPicker(); return; }
+        _mentionState.filter = after;
+        _mentionState.index = 0;
+        renderMentionPicker();
+    }
+
+    // ==================== Inline math ($...$) ====================
+    async function tryInlineMath(editor) {
+        const sel = window.getSelection();
+        if (!sel.rangeCount || !sel.isCollapsed) return false;
+        const range = sel.getRangeAt(0);
+        const node = range.startContainer;
+        if (node.nodeType !== Node.TEXT_NODE) return false;
+        if (isInsideTag(node, 'code') || isInsideTag(node, 'pre')) return false;
+        const text = node.textContent;
+        const offset = range.startOffset;
+        // Text must end with the closing `$` just typed
+        if (offset === 0 || text[offset - 1] !== '$') return false;
+        // Find the opening `$`
+        const searchEnd = offset - 1;
+        const openIdx = text.lastIndexOf('$', searchEnd - 1);
+        if (openIdx === -1) return false;
+        // Skip if the inner is empty or surrounds `$$` (display math)
+        if (text[openIdx - 1] === '$' || text[openIdx + 1] === '$') return false;
+        const tex = text.slice(openIdx + 1, searchEnd);
+        if (!tex.trim()) return false;
+
+        await loadKatex();
+        const before = text.slice(0, openIdx);
+        const after = text.slice(offset);
+        const parent = node.parentNode;
+
+        const span = document.createElement('span');
+        span.className = 'math-inline';
+        span.setAttribute('contenteditable', 'false');
+        span.setAttribute('data-tex', tex);
+        if (typeof window.katex !== 'undefined') {
+            try {
+                window.katex.render(tex, span, { throwOnError: false, displayMode: false });
+            } catch { span.textContent = '$' + tex + '$'; }
+        } else {
+            span.textContent = '$' + tex + '$';
+        }
+        const afterNode = document.createTextNode(after);
+        if (before) {
+            node.textContent = before;
+            parent.insertBefore(span, node.nextSibling);
+            parent.insertBefore(afterNode, span.nextSibling);
+        } else {
+            parent.insertBefore(span, node);
+            parent.insertBefore(afterNode, span.nextSibling);
+            parent.removeChild(node);
+        }
+        const r = document.createRange();
+        r.setStart(afterNode, 0);
+        r.collapse(true);
+        const s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        return true;
     }
 
     // ==================== Callout block ====================
@@ -2909,23 +3346,40 @@
             if (e.inputType === 'insertText' && e.data === '/' && !_slashState) {
                 openSlashMenu(editor);
             } else if (_slashState) {
-                // Keep the filter in sync as the user types after "/"
                 updateSlashMenuFilter(editor);
+            }
+            // Emoji picker on ":"
+            if (e.inputType === 'insertText' && e.data === ':' && !_emojiState && !_slashState) {
+                openEmojiPicker(editor);
+            } else if (_emojiState) {
+                updateEmojiPickerFilter(editor);
+            }
+            // Mention picker on "@"
+            if (e.inputType === 'insertText' && e.data === '@' && !_mentionState && !_slashState) {
+                openMentionPicker(editor);
+            } else if (_mentionState) {
+                updateMentionPickerFilter(editor);
             }
             // Block-level markdown shortcuts on space
             if (e.inputType === 'insertText' && e.data === ' ') {
                 tryMarkdownShortcut(editor);
+                // Auto-link: detect URL right before the space
+                tryAutoLink(editor);
             }
             // Inline live markdown on a non-IME single character insertion
             if (!_isComposing && e.inputType === 'insertText' && e.data && e.data.length === 1) {
                 tryInlineMarkdown(editor, e.data);
+                // Inline math on closing $
+                if (e.data === '$') tryInlineMath(editor);
             }
             scheduleSave();
         });
 
         editor.addEventListener('keydown', (e) => {
-            // Slash menu consumes keys first (Arrow/Enter/Escape)
+            // Slash menu / emoji / mention pickers consume keys first
             if (_slashState && handleSlashMenuKey(e)) return;
+            if (_emojiState && handleEmojiPickerKey(e)) return;
+            if (_mentionState && handleMentionPickerKey(e)) return;
             // Block selection mode intercepts most keys
             if (_selectedBlock && handleBlockSelectionKey(editor, e)) return;
 
