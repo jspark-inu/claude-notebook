@@ -260,24 +260,25 @@ html, body {
     color: #fff;
     border-color: var(--danger);
 }
-/* Drag handle (left of icon, hover to reveal) */
+/* Drag handle (left of icon) — always visible, tight against the item edge. */
 .term-item-drag {
     flex-shrink: 0;
-    width: 16px;
+    width: 10px;
+    /* Pull the handle toward the item's left padding and tighten the gap
+       to the icon so it doesn't feel like a huge empty column. */
+    margin-left: -4px;
+    margin-right: -4px;
     text-align: center;
     color: var(--text-secondary);
     cursor: grab;
-    opacity: 0;
+    opacity: 0.45;
     transition: opacity 0.15s;
     font-size: 12px;
     line-height: 1;
     user-select: none;
 }
-.term-item:hover .term-item-drag {
-    opacity: 0.5;
-}
 .term-item-drag:hover {
-    opacity: 1 !important;
+    opacity: 1;
 }
 .term-item-drag:active {
     cursor: grabbing;
