@@ -621,18 +621,34 @@ button:focus-visible,
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     padding: 12px 20px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    min-width: 0;
 }
 .preview-breadcrumb {
+    flex: 1;
+    min-width: 0;
     font-size: 13px;
     color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.preview-breadcrumb .bc-part,
+.preview-breadcrumb .bc-sep {
+    display: inline;
+}
+.preview-breadcrumb .bc-part:last-child {
+    color: var(--text);
+    font-weight: 500;
 }
 .preview-actions {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
 }
 .preview-btn {
     display: flex;
@@ -2361,6 +2377,47 @@ tr:first-child .csv-row-actions {
         padding-left: 48px;
     }
 
+    /* Tighter mobile preview header — keep menu button + filename + actions on a single clean row */
+    .preview-header {
+        padding-top: 8px;
+        padding-right: 10px;
+        padding-bottom: 8px;
+        gap: 8px;
+    }
+    .preview-breadcrumb {
+        font-size: 12px;
+    }
+    /* Collapse breadcrumb to filename only on mobile to free space for action buttons */
+    .preview-breadcrumb .bc-part:not(:last-child),
+    .preview-breadcrumb .bc-sep {
+        display: none;
+    }
+    .preview-actions {
+        gap: 4px;
+    }
+    .preview-btn {
+        width: 28px;
+        height: 26px;
+    }
+    .preview-close {
+        width: 28px;
+        height: 26px;
+    }
+    .preview-btn-text {
+        padding: 0 8px;
+        font-size: 11px;
+    }
+    /* Compact save-state pill: keep the colored dot, drop the label text */
+    .preview-status {
+        padding: 0 6px;
+        height: 26px;
+        font-size: 0;
+    }
+    .preview-status::after {
+        font-size: 0 !important;
+        content: '' !important;
+    }
+
     .finder-grid {
         grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     }
@@ -2414,6 +2471,13 @@ tr:first-child .csv-row-actions {
         min-width: 0;
         flex: 1;
     }
+}
+
+@media (max-width: 480px) {
+    /* Very narrow screens — drop the help button entirely; "?" key shortcut still works */
+    #previewHelp { display: none !important; }
+    .preview-header { padding-right: 8px; }
+    .preview-actions { gap: 3px; }
 }
 
 /* === Color Rules Modal === */

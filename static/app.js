@@ -3964,7 +3964,9 @@
         try {
             const ext = '.' + path.split('.').pop().toLowerCase();
             const parts = path.split('/');
-            previewBreadcrumb.innerHTML = parts.map((p) => `<span>${escHtml(p)}</span>`).join(' / ');
+            previewBreadcrumb.innerHTML = parts
+                .map((p, i) => `<span class="bc-part">${escHtml(p)}</span>`)
+                .join('<span class="bc-sep"> / </span>');
             previewHistory.style.display = 'none';
 
             if (IMAGE_EXTS.includes(ext)) {
