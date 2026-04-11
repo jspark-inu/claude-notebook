@@ -1144,9 +1144,11 @@
         }
         if (TIMETABLE_EXTS.includes(ext)) return JSON.stringify(_timetableData, null, 2);
         if (DATETABLE_EXTS.includes(ext)) return JSON.stringify(_datetableData, null, 2);
-        // Markdown: serialize the contenteditable DOM back to markdown so
-        // there's no need to ever swap to a textarea.
+        // Markdown: when the user has flipped to Text view, read the raw
+        // source textarea directly; otherwise serialize the Notion editor.
         if (MD_EXTS.includes(ext)) {
+            const sourceTa = previewBody.querySelector('.md-source-edit');
+            if (sourceTa) return sourceTa.value;
             const editor = previewBody.querySelector('.notion-editor');
             if (editor) return domToMarkdown(editor);
             return currentFileData.content;
@@ -3214,20 +3216,33 @@
             // Capture any unsaved edits from the live editor before swapping out.
             const editor = previewBody.querySelector('.notion-editor');
             if (editor) currentFileData.content = domToMarkdown(editor);
-            previewBody.innerHTML = `<pre class="file-raw">${escHtml(currentFileData.content)}</pre>`;
+            previewBody.innerHTML =
+                `<textarea class="edit-textarea md-source-edit" spellcheck="false"></textarea>`;
+            const ta = previewBody.querySelector('.md-source-edit');
+            ta.value = currentFileData.content || '';
+            wireMdSourceTextarea(ta);
+            requestAnimationFrame(() => {
+                ta.style.height = 'auto';
+                ta.style.height = Math.max(ta.scrollHeight, previewBody.clientHeight - 40) + 'px';
+                try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+            });
             _mdViewMode = 'text';
             if (previewViewToggle) {
                 previewViewToggle.textContent = 'Markdown';
                 previewViewToggle.title = 'Switch to rendered Markdown view';
             }
         } else {
-            // Re-render the markdown editor from the latest content.
+            // Coming back from text mode: pull the latest textarea value into
+            // currentFileData.content so the re-render uses the freshest edits.
+            const ta = previewBody.querySelector('.md-source-edit');
+            if (ta) currentFileData.content = ta.value;
             previewBody.innerHTML = `<div class="markdown-body notion-editor">${marked.parse(currentFileData.content)}</div>`;
             if (typeof hljs !== 'undefined') {
                 previewBody.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
             }
             const editor = previewBody.querySelector('.notion-editor');
             rewriteRelativeMediaUrls(editor, currentFileDir());
+            rehydrateTaskCheckboxes(editor);
             setupNotionEditor(editor);
             rehydrateMathBlocks(editor);
             rehydrateTOCBlocks(editor);
@@ -3240,6 +3255,48 @@
                 previewViewToggle.title = 'Switch to plain text view';
             }
         }
+    }
+
+    /** Wire up auto-save / Tab / Ctrl+S behavior on the markdown-source
+     *  textarea used by the Text view toggle. Mirrors enterInlineEdit's
+     *  textarea, without the one-shot Escape-to-revert (we want the toggle
+     *  to persist edits, not throw them away). */
+    function wireMdSourceTextarea(ta) {
+        ta.addEventListener('input', () => {
+            ta.style.height = 'auto';
+            ta.style.height = Math.max(ta.scrollHeight, previewBody.clientHeight - 40) + 'px';
+            scheduleSave();
+        });
+        ta.addEventListener('blur', () => { flushSave(); });
+        ta.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = ta.selectionStart;
+                ta.value = ta.value.substring(0, start) + '    ' + ta.value.substring(ta.selectionEnd);
+                ta.selectionStart = ta.selectionEnd = start + 4;
+                scheduleSave();
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                flushSave();
+            }
+        });
+    }
+
+    /** Strip marked's default `disabled` attribute on task-list checkboxes
+     *  and make them contenteditable-transparent so a tap/click actually
+     *  toggles them on both desktop and mobile. See bug note in the change
+     *  log — marked v4 hardcodes `<input disabled type="checkbox">` in the
+     *  gfm renderer, so without this pass nothing is clickable anywhere. */
+    function rehydrateTaskCheckboxes(editor) {
+        if (!editor) return;
+        editor.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+            cb.removeAttribute('disabled');
+            // iOS Safari tends to swallow taps on form controls inside a
+            // contenteditable host unless the control opts out.
+            cb.setAttribute('contenteditable', 'false');
+        });
     }
 
     if (previewViewToggle) {
@@ -3989,6 +4046,28 @@
         editor.addEventListener('mousedown', () => {
             if (_selectedBlock) clearBlockSelection();
         });
+
+        // Task-list checkbox toggling. We intentionally manage the toggle
+        // manually instead of trusting the browser's native click → toggle,
+        // because iOS Safari inside a contenteditable host often swallows
+        // the tap for caret placement, leaving the checkbox in its stale
+        // state. Handling it here makes desktop + mobile behave identically
+        // and wires the change to scheduleSave so the markdown source stays
+        // in sync (`[x]` vs `[ ]`).
+        editor.addEventListener('click', (e) => {
+            const cb = e.target.closest('input[type="checkbox"]');
+            if (!cb || !editor.contains(cb)) return;
+            // Only task-list checkboxes live inside <li> — leave any other
+            // stray checkbox alone (there shouldn't be any today, but be safe).
+            if (!cb.closest('li')) return;
+            e.preventDefault();
+            cb.checked = !cb.checked;
+            // Reflect the new state on the attribute too so serialization and
+            // any attribute-based CSS stay consistent.
+            if (cb.checked) cb.setAttribute('checked', '');
+            else cb.removeAttribute('checked');
+            scheduleSave();
+        });
     }
 
     async function renderPreviewMode(data) {
@@ -4014,6 +4093,10 @@
             // inline from /api/file?raw=1. Must run BEFORE setupNotionEditor so
             // the serialize-for-baseline step uses the data-*-original form.
             rewriteRelativeMediaUrls(editor, currentFileDir());
+            // Task-list checkboxes come out of marked with `disabled` set and
+            // tend to be swallowed by contenteditable on touch; fix both here
+            // before we wire up the editor so the round-trip stays clean.
+            rehydrateTaskCheckboxes(editor);
             setupNotionEditor(editor);
             // Rehydrate math blocks (KaTeX re-render) and TOC click handlers
             rehydrateMathBlocks(editor);

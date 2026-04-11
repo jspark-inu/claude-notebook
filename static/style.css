@@ -767,9 +767,16 @@ button:focus-visible,
     margin: 2px 0;
 }
 
-/* Checkbox lists (task lists) */
+/* Checkbox lists (task lists) — larger baseline so they're easy to hit,
+   and even larger on touch devices where a 16px native checkbox is below
+   the recommended tap-target size. */
 .markdown-body li input[type="checkbox"] {
-    margin-right: 6px;
+    width: 18px;
+    height: 18px;
+    margin-right: 8px;
+    vertical-align: -3px;
+    cursor: pointer;
+    flex-shrink: 0;
 }
 
 /* Blockquote */
@@ -1030,11 +1037,8 @@ button:focus-visible,
 .markdown-body.notion-editor code {
     caret-color: var(--text);
 }
-/* Task-list checkboxes: interactive even while editing */
-.markdown-body.notion-editor li input[type="checkbox"] {
-    cursor: pointer;
-    margin-right: 6px;
-}
+/* Task-list checkboxes: size/cursor inherited from the base rule above;
+   nothing to override while in the notion-editor contenteditable. */
 /* Toggle block — native <details> styled like a Notion toggle */
 .markdown-body.notion-editor details {
     margin: 6px 0;
@@ -2452,6 +2456,16 @@ tr:first-child .csv-row-actions {
 
     .markdown-body th, .markdown-body td {
         padding: 6px 8px;
+    }
+
+    /* Larger checkbox hit area on touch — the 18px desktop default is
+       below iOS's recommended 44px min, but 22px keeps the visual balance
+       with 14–16px list text while doubling the tap area. */
+    .markdown-body li input[type="checkbox"] {
+        width: 22px;
+        height: 22px;
+        margin-right: 10px;
+        vertical-align: -5px;
     }
 
     .file-raw {
