@@ -1511,6 +1511,27 @@ backBtn.addEventListener('click', () => {
     window.location.href = (BASE || '') + '/files';
 });
 
+// === Theme toggle ===
+// Boot script in <head> already set data-theme from localStorage / OS.
+// Here we wire the click + storage sync across tabs. xterm canvas stays dark
+// regardless (it's the traditional terminal look).
+(function () {
+    const btn = document.getElementById('themeToggleBtn');
+    if (!btn) return;
+    function applyTheme(theme) { document.documentElement.dataset.theme = theme; }
+    btn.addEventListener('click', () => {
+        const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        applyTheme(next);
+        try { localStorage.setItem('cn-theme', next); } catch (e) {}
+    });
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'cn-theme' && (e.newValue === 'dark' || e.newValue === 'light')) {
+            applyTheme(e.newValue);
+        }
+    });
+})();
+
 // Create new terminal
 newTermBtn.addEventListener('click', async () => {
     const result = await showConfigModal(null);

@@ -148,6 +148,14 @@ button:focus-visible,
     border-color: var(--text);
 }
 
+/* Theme toggle — swap sun/moon icons based on current theme */
+#themeToggleBtn .theme-icon-sun,
+#themeToggleBtn .theme-icon-moon {
+    display: none;
+}
+[data-theme="light"] #themeToggleBtn .theme-icon-moon { display: block; }
+[data-theme="dark"] #themeToggleBtn .theme-icon-sun { display: block; }
+
 .sidebar-close {
     display: none;
     background: none;
@@ -1415,63 +1423,63 @@ button:focus-visible,
 }
 
 /* =========================================================================
-   Dark mode — honor OS preference
+   Dark mode — driven by [data-theme="dark"] on <html>.
+   The boot script in <head> resolves localStorage → attribute at load time,
+   so we no longer depend on prefers-color-scheme directly.
    ========================================================================= */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg: #1a1a1a;
-        --sidebar-bg: #232323;
-        --sidebar-hover: #2e2e2e;
-        --sidebar-active: #383838;
-        --text: #e4e4e4;
-        --text-secondary: #8a8a8a;
-        --border: #333333;
-        --accent: #4bb8e2;
-        --accent-light: rgba(75, 184, 226, 0.12);
-        --code-bg: #232323;
-        --blockquote-border: #444;
-        --blockquote-bg: #2a2a2a;
-    }
-    /* Keep inline code readable on the darker background */
-    .markdown-body code {
-        background: #2e2e2e;
-        color: #f0f0f0;
-    }
-    .markdown-body pre {
-        background: #141414;
-    }
-    /* Callout in dark theme */
-    .markdown-body.notion-editor .callout {
-        background: #2a2518;
-        border-color: rgba(223, 171, 1, 0.28);
-    }
-    /* Math block */
-    .markdown-body.notion-editor .math-block {
-        background: #232323;
-    }
-    /* Selection toolbar stays dark — already themed */
-    /* Preview status pills get slightly lighter bg in dark mode */
-    .preview-status[data-state="saved"] {
-        color: #6ee7b7;
-        background: rgba(16, 185, 129, 0.14);
-    }
-    .preview-status[data-state="dirty"] {
-        color: #fcd34d;
-        background: rgba(245, 158, 11, 0.14);
-    }
-    .preview-status[data-state="saving"] { background: #2e2e2e; }
-    .preview-status[data-state="error"] {
-        color: #fca5a5;
-        background: rgba(220, 38, 38, 0.14);
-    }
-    /* History / help / meeting modals — keep the surface visible */
-    .history-overlay, .help-overlay, .meeting-modal-overlay {
-        background: rgba(0, 0, 0, 0.65);
-    }
-    /* File finder hover tint */
-    .finder-item:hover { background: #2e2e2e; }
-    /* Code language picker backdrop stays the same (already dark) */
+:root[data-theme="dark"] {
+    --bg: #1a1a1a;
+    --sidebar-bg: #232323;
+    --sidebar-hover: #2e2e2e;
+    --sidebar-active: #383838;
+    --text: #e4e4e4;
+    --text-secondary: #8a8a8a;
+    --border: #333333;
+    --accent: #4bb8e2;
+    --accent-light: rgba(75, 184, 226, 0.12);
+    --code-bg: #232323;
+    --blockquote-border: #444;
+    --blockquote-bg: #2a2a2a;
 }
+/* Keep inline code readable on the darker background */
+[data-theme="dark"] .markdown-body code {
+    background: #2e2e2e;
+    color: #f0f0f0;
+}
+[data-theme="dark"] .markdown-body pre {
+    background: #141414;
+}
+/* Callout in dark theme */
+[data-theme="dark"] .markdown-body.notion-editor .callout {
+    background: #2a2518;
+    border-color: rgba(223, 171, 1, 0.28);
+}
+/* Math block */
+[data-theme="dark"] .markdown-body.notion-editor .math-block {
+    background: #232323;
+}
+/* Preview status pills get slightly lighter bg in dark mode */
+[data-theme="dark"] .preview-status[data-state="saved"] {
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.14);
+}
+[data-theme="dark"] .preview-status[data-state="dirty"] {
+    color: #fcd34d;
+    background: rgba(245, 158, 11, 0.14);
+}
+[data-theme="dark"] .preview-status[data-state="saving"] { background: #2e2e2e; }
+[data-theme="dark"] .preview-status[data-state="error"] {
+    color: #fca5a5;
+    background: rgba(220, 38, 38, 0.14);
+}
+/* History / help / meeting modals — keep the surface visible */
+[data-theme="dark"] .history-overlay,
+[data-theme="dark"] .help-overlay,
+[data-theme="dark"] .meeting-modal-overlay {
+    background: rgba(0, 0, 0, 0.65);
+}
+/* File finder hover tint */
+[data-theme="dark"] .finder-item:hover { background: #2e2e2e; }
 
 /* =========================================================================
    Slash menu — floating block type picker at caret
@@ -2744,11 +2752,9 @@ tr:first-child .csv-row-actions {
 .dt-summary-item { font-size: 12px; color: var(--text); }
 .dt-summary-date { font-weight: 600; color: var(--accent); margin-right: 4px; }
 
-/* Dark mode adjustments */
-@media (prefers-color-scheme: dark) {
-    .tt-cell:hover { background: #2a3a4a; }
-    .dt-cell:hover { background: #2a3a4a; }
-    .dt-cell.dt-today { background: #3a3520; }
-    .dt-cell.dt-today:hover { background: #4a4530; }
-    .dt-cell.dt-drag-selected { background: rgba(46, 170, 220, 0.25) !important; }
-}
+/* Dark mode adjustments for timetable/datetable */
+[data-theme="dark"] .tt-cell:hover { background: #2a3a4a; }
+[data-theme="dark"] .dt-cell:hover { background: #2a3a4a; }
+[data-theme="dark"] .dt-cell.dt-today { background: #3a3520; }
+[data-theme="dark"] .dt-cell.dt-today:hover { background: #4a4530; }
+[data-theme="dark"] .dt-cell.dt-drag-selected { background: rgba(46, 170, 220, 0.25) !important; }

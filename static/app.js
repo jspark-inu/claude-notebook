@@ -88,6 +88,29 @@
         window.location.href = (window.__VIEWER_BASE || '/claude-notebook') + '/terminal';
     });
 
+    // === Theme toggle ===
+    // The <head> boot script already set data-theme from localStorage / OS.
+    // Here we just wire the click handler and keep the two tabs in sync via
+    // the 'storage' event (changing theme in one tab updates the other).
+    (function () {
+        const btn = document.getElementById('themeToggleBtn');
+        if (!btn) return;
+        function applyTheme(theme) {
+            document.documentElement.dataset.theme = theme;
+        }
+        btn.addEventListener('click', () => {
+            const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+            const next = current === 'dark' ? 'light' : 'dark';
+            applyTheme(next);
+            try { localStorage.setItem('cn-theme', next); } catch (e) {}
+        });
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'cn-theme' && (e.newValue === 'dark' || e.newValue === 'light')) {
+                applyTheme(e.newValue);
+            }
+        });
+    })();
+
     // Configure marked
     marked.setOptions({ gfm: true, breaks: true });
 

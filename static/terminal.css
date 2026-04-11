@@ -28,6 +28,23 @@
         'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
 }
 
+/* ===== Dark theme — unified with style.css palette =====
+   Driven by [data-theme="dark"] on <html> (set by the boot script in <head>).
+   Specific hardcoded light colors are overridden further below where needed. */
+:root[data-theme="dark"] {
+    --bg: #1a1a1a;
+    --sidebar-bg: #232323;
+    --sidebar-hover: #2e2e2e;
+    --sidebar-active: #383838;
+    --text: #e4e4e4;
+    --text-secondary: #8a8a8a;
+    --border: #333333;
+    --accent: #4bb8e2;
+    --danger: #e05555;
+    --danger-hover: #c53030;
+    --success: #34d399;
+}
+
 /* ===== Unified thin scrollbars =====
    Gives Windows Chrome/Edge the same low-profile look as macOS overlay
    scrollbars. Applies to every scrollable area by default; specific
@@ -56,6 +73,18 @@
 * {
     scrollbar-width: thin;
     scrollbar-color: rgba(55, 53, 47, 0.22) transparent;
+}
+/* Dark theme scrollbars — invert thumb contrast */
+[data-theme="dark"] *::-webkit-scrollbar-thumb {
+    background: rgba(212, 212, 212, 0.22);
+    background-clip: content-box;
+}
+[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 212, 212, 0.44);
+    background-clip: content-box;
+}
+[data-theme="dark"] * {
+    scrollbar-color: rgba(212, 212, 212, 0.22) transparent;
 }
 /* Dark surfaces inside terminal area — lighter thumb to stay visible on #1e1e1e */
 .term-select-overlay {
@@ -975,4 +1004,84 @@ html, body {
     .vkb-toggle-btn {
         display: flex;
     }
+}
+
+/* ============================================================
+   Dark theme — hardcoded light-color overrides
+   Kept at the bottom so they win specificity against earlier rules.
+   ============================================================ */
+
+/* Theme toggle icon swap */
+#themeToggleBtn .theme-icon-sun,
+#themeToggleBtn .theme-icon-moon {
+    display: none;
+}
+[data-theme="light"] #themeToggleBtn .theme-icon-moon { display: block; }
+[data-theme="dark"] #themeToggleBtn .theme-icon-sun { display: block; }
+
+/* Editable terminal-name chip */
+[data-theme="dark"] .term-item-name[contenteditable="true"] {
+    background: var(--sidebar-bg);
+    color: var(--text);
+}
+
+/* Config modal */
+[data-theme="dark"] .config-modal {
+    background: var(--bg);
+    color: var(--text);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+[data-theme="dark"] .config-modal input,
+[data-theme="dark"] .config-modal textarea {
+    background: var(--sidebar-bg);
+    color: var(--text);
+    border-color: var(--border);
+}
+
+/* iMessage chat surfaces */
+[data-theme="dark"] .chat-view,
+[data-theme="dark"] .chat-messages {
+    background: var(--bg);
+}
+[data-theme="dark"] .chat-time-sep {
+    color: var(--text-secondary);
+}
+[data-theme="dark"] .chat-msg-row.sent .chat-bubble {
+    background: #0a84ff;
+    color: #fff;
+}
+[data-theme="dark"] .chat-msg-row.received .chat-bubble {
+    background: #2a2a2a;
+    color: #e4e4e4;
+    border-color: #3a3a3a;
+    scrollbar-color: rgba(212, 212, 212, 0.3) transparent;
+}
+[data-theme="dark"] .chat-msg-row.received .chat-bubble::-webkit-scrollbar-thumb {
+    background: rgba(212, 212, 212, 0.3);
+}
+[data-theme="dark"] .chat-msg-row.received .chat-bubble::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 212, 212, 0.5);
+}
+[data-theme="dark"] .chat-typing-bubble {
+    background: #2a2a2a;
+}
+[data-theme="dark"] .chat-typing-dot {
+    background: #8a8a8a;
+}
+
+/* Pending files chip — the light fallback background would look out of place */
+[data-theme="dark"] .pending-file {
+    background: var(--sidebar-bg);
+    border-color: var(--border);
+    color: var(--text);
+}
+
+/* Modal overlay tint deeper in dark so chrome stays visible */
+[data-theme="dark"] .config-modal-overlay {
+    background: rgba(0,0,0,0.65);
+}
+
+/* Terminal sidebar mobile overlay */
+[data-theme="dark"] .mobile-overlay.active {
+    background: rgba(0,0,0,0.6);
 }
