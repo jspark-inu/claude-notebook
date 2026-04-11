@@ -5565,6 +5565,47 @@
             renderDatetable(JSON.stringify(_datetableData), filePath);
         });
 
+        // Mobile swipe: swipe left → next month, swipe right → previous month
+        const dtContainerEl = previewBody.querySelector('.dt-container');
+        if (dtContainerEl) {
+            let dtTouchStartX = 0, dtTouchStartY = 0, dtTouchActive = false, dtSwiped = false;
+            dtContainerEl.addEventListener('touchstart', (e) => {
+                if (e.touches.length !== 1) { dtTouchActive = false; return; }
+                dtTouchStartX = e.touches[0].clientX;
+                dtTouchStartY = e.touches[0].clientY;
+                dtTouchActive = true;
+                dtSwiped = false;
+            }, { passive: true });
+            dtContainerEl.addEventListener('touchmove', (e) => {
+                if (!dtTouchActive || e.touches.length !== 1) return;
+                const dx = e.touches[0].clientX - dtTouchStartX;
+                const dy = e.touches[0].clientY - dtTouchStartY;
+                // Once clearly horizontal, mark swiped so touchend skips the tap behavior
+                if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    dtSwiped = true;
+                }
+            }, { passive: true });
+            dtContainerEl.addEventListener('touchend', (e) => {
+                if (!dtTouchActive) return;
+                dtTouchActive = false;
+                const t = e.changedTouches[0];
+                const dx = t.clientX - dtTouchStartX;
+                const dy = t.clientY - dtTouchStartY;
+                if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    // Horizontal swipe → prevent synthetic mouse/click events, then change month
+                    if (e.cancelable) e.preventDefault();
+                    if (dx < 0) {
+                        _dtCurrentMonth.month++;
+                        if (_dtCurrentMonth.month > 11) { _dtCurrentMonth.month = 0; _dtCurrentMonth.year++; }
+                    } else {
+                        _dtCurrentMonth.month--;
+                        if (_dtCurrentMonth.month < 0) { _dtCurrentMonth.month = 11; _dtCurrentMonth.year--; }
+                    }
+                    renderDatetable(JSON.stringify(_datetableData), filePath);
+                }
+            });
+        }
+
         // Direct input form
         previewBody.querySelector('#dtInputAdd')?.addEventListener('click', () => {
             const dateStart = previewBody.querySelector('#dtInputDate').value;

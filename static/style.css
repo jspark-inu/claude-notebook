@@ -2721,7 +2721,7 @@ tr:first-child .csv-row-actions {
 /* =========================================================================
    Datetable (.datetable)
    ========================================================================= */
-.dt-container { padding: 16px; }
+.dt-container { padding: 16px; touch-action: pan-y; }
 .dt-nav {
     display: flex; align-items: center; justify-content: center;
     gap: 16px; margin-bottom: 12px;
