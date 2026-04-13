@@ -40,6 +40,18 @@ import {
     renameItem as renameItemApi,
     initFileOpsButtons,
 } from './ui/file-ops.js';
+import {
+    BLOCK_TAGS,
+    closestBlock,
+    placeCaretAtStart,
+    mediaTagToHtml,
+    inlineToMd,
+    listToMd,
+    tableToMd,
+    blockToMd,
+    domToMarkdown,
+    sanitizePastedHtml,
+} from './editor/markdown.js';
 
 const contentEl = document.getElementById('content');
     const finder = document.getElementById('finder');
@@ -985,295 +997,13 @@ const contentEl = document.getElementById('content');
     // The rendered .markdown-body IS the editor. Clicking anywhere puts the
     // caret there. Typing "works", including Notion's markdown shortcuts
     // (`#`, `##`, `-`, `1.`, `>`, `---`, `[]` + space) which transform the
-    // current block in place. Auto-save reads the DOM through a home-grown
-    // HTML→Markdown serializer — there is no mode switch and no rendered ↔
-    // source asymmetry.
+    // current block in place. Auto-save reads the DOM through the HTML →
+    // Markdown serializer in editor/markdown.js — there is no mode switch
+    // and no rendered ↔ source asymmetry.
     //
-    // Scope covers the subset marked.js produces: headings h1-h6, p, ul, ol,
-    // li (incl. task-list checkbox), blockquote, pre>code, hr, img, tables,
-    // and inline strong/em/code/del/a/br. Anything else falls through as
-    // textContent.
-
-    const BLOCK_TAGS = new Set([
-        'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'blockquote', 'pre', 'ul', 'ol', 'li', 'hr', 'table', 'div',
-        'details', 'section',
-    ]);
-
-    /** Walk up from a node to the enclosing block element inside the editor. */
-    function closestBlock(node, editor) {
-        let n = node;
-        while (n && n !== editor) {
-            if (n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName.toLowerCase())) {
-                return n;
-            }
-            n = n.parentNode;
-        }
-        return null;
-    }
-
-    function placeCaretAtStart(el) {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        range.collapse(true);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-    }
-
-    // ---- Inline (recursive) HTML → Markdown ----
-    function inlineToMd(el) {
-        let out = '';
-        for (const node of el.childNodes) {
-            if (node.nodeType === Node.TEXT_NODE) {
-                out += node.textContent;
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-                const tag = node.tagName.toLowerCase();
-                if (tag === 'br') { out += '  \n'; continue; }
-                if (tag === 'img') {
-                    const alt = node.getAttribute('alt') || '';
-                    // Prefer the clean relative form saved by
-                    // rewriteRelativeMediaUrls so we round-trip cleanly.
-                    const src = node.getAttribute('data-src-original') || node.getAttribute('src') || '';
-                    out += `![${alt}](${src})`;
-                    continue;
-                }
-                if (tag === 'audio' || tag === 'video') {
-                    // Images use their natural markdown form; audio/video have
-                    // no markdown equivalent so we pass raw HTML which marked.js
-                    // re-renders on the next open.
-                    out += mediaTagToHtml(node);
-                    continue;
-                }
-                const inner = inlineToMd(node);
-                switch (tag) {
-                    case 'strong': case 'b': out += inner.trim() ? `**${inner}**` : inner; break;
-                    case 'em': case 'i': out += inner.trim() ? `*${inner}*` : inner; break;
-                    case 'code': out += `\`${inner}\``; break;
-                    case 'del': case 's': case 'strike': out += `~~${inner}~~`; break;
-                    case 'u':
-                        // Underline has no standard markdown — fall back to
-                        // inline HTML which marked.js passes through.
-                        out += `<u>${inner}</u>`;
-                        break;
-                    case 'a': {
-                        const href = node.getAttribute('data-href-original') || node.getAttribute('href') || '';
-                        out += `[${inner}](${href})`;
-                        break;
-                    }
-                    case 'input':
-                        // task-list checkbox — handled by the containing <li>
-                        break;
-                    case 'span': {
-                        // Inline math → $...$ with the span preserved so
-                        // reloads still render via KaTeX
-                        if (node.classList && node.classList.contains('math-inline')) {
-                            const tex = node.getAttribute('data-tex') || '';
-                            out += `<span class="math-inline" data-tex="${escHtml(tex)}">$${tex}$</span>`;
-                            break;
-                        }
-                        // Preserve color / background spans as inline HTML.
-                        // Notion-style colors are the main case; we pass the
-                        // style attribute through verbatim so marked.js
-                        // re-renders them on reload.
-                        const style = node.getAttribute('style');
-                        if (style) out += `<span style="${style}">${inner}</span>`;
-                        else out += inner;
-                        break;
-                    }
-                    default:
-                        out += inner;
-                }
-            }
-        }
-        return out;
-    }
-
-    // ---- List → Markdown (supports nesting + task-list checkboxes) ----
-    function listToMd(ul, ordered, depth) {
-        const items = Array.from(ul.children).filter(c => c.tagName === 'LI');
-        const indent = '    '.repeat(depth); // 4 spaces per level keeps marked.js happy
-        return items.map((li, i) => {
-            const bullet = ordered ? `${i + 1}. ` : '- ';
-            // Task-list checkbox?
-            const cb = li.querySelector(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]');
-            const task = cb ? (cb.checked ? '[x] ' : '[ ] ') : '';
-            // Split li contents: the first paragraph/text is the item text;
-            // any nested ul/ol is recursively serialized and indented.
-            let textParts = [];
-            let nestedParts = [];
-            for (const child of li.childNodes) {
-                if (child.nodeType === Node.TEXT_NODE) {
-                    textParts.push(child.textContent);
-                } else if (child.nodeType === Node.ELEMENT_NODE) {
-                    const tag = child.tagName.toLowerCase();
-                    if (tag === 'ul') nestedParts.push(listToMd(child, false, depth + 1));
-                    else if (tag === 'ol') nestedParts.push(listToMd(child, true, depth + 1));
-                    else if (tag === 'input' && child.type === 'checkbox') { /* consumed */ }
-                    else if (tag === 'p') textParts.push(inlineToMd(child));
-                    else textParts.push(inlineToMd(child));
-                }
-            }
-            const text = textParts.join('').replace(/^\s+|\s+$/g, '');
-            let line = indent + bullet + task + text;
-            if (nestedParts.length) line += '\n' + nestedParts.join('\n');
-            return line;
-        }).join('\n');
-    }
-
-    // ---- Table → Markdown (pipe table) ----
-    function tableToMd(table) {
-        const rows = Array.from(table.querySelectorAll('tr'));
-        if (rows.length === 0) return '';
-        const cellsOf = (tr) => Array.from(tr.children)
-            .filter(c => c.tagName === 'TH' || c.tagName === 'TD')
-            .map(c => inlineToMd(c).replace(/\|/g, '\\|').replace(/\n/g, ' '));
-        const header = cellsOf(rows[0]);
-        const sep = header.map(() => '---');
-        const body = rows.slice(1).map(cellsOf);
-        const toRow = (cells) => '| ' + cells.join(' | ') + ' |';
-        return [toRow(header), toRow(sep), ...body.map(toRow)].join('\n');
-    }
-
-    // ---- Single block → Markdown ----
-    function blockToMd(block) {
-        const tag = block.tagName.toLowerCase();
-        switch (tag) {
-            case 'h1': return '# ' + inlineToMd(block);
-            case 'h2': return '## ' + inlineToMd(block);
-            case 'h3': return '### ' + inlineToMd(block);
-            case 'h4': return '#### ' + inlineToMd(block);
-            case 'h5': return '##### ' + inlineToMd(block);
-            case 'h6': return '###### ' + inlineToMd(block);
-            case 'p': {
-                const txt = inlineToMd(block);
-                return txt;
-            }
-            case 'blockquote': {
-                // Serialize inner blocks then prefix each line with "> "
-                const inner = Array.from(block.childNodes)
-                    .map(n => {
-                        if (n.nodeType === Node.TEXT_NODE) return n.textContent;
-                        if (n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName.toLowerCase())) {
-                            return blockToMd(n);
-                        }
-                        return n.nodeType === Node.ELEMENT_NODE ? inlineToMd(n) : '';
-                    })
-                    .filter(Boolean)
-                    .join('\n\n');
-                return inner.split('\n').map(l => '> ' + l).join('\n');
-            }
-            case 'pre': {
-                const code = block.querySelector('code');
-                const langMatch = code && code.className.match(/language-([\w-]+)/);
-                const lang = langMatch ? langMatch[1] : '';
-                const text = (code || block).textContent.replace(/\n$/, '');
-                return '```' + lang + '\n' + text + '\n```';
-            }
-            case 'ul': return listToMd(block, false, 0);
-            case 'ol': return listToMd(block, true, 0);
-            case 'hr': return '---';
-            case 'table': return tableToMd(block);
-            case 'details': {
-                // Toggle block — preserved as inline HTML since markdown
-                // has no standard toggle syntax. marked.js passes HTML
-                // through so the block re-renders correctly next open.
-                const summary = block.querySelector(':scope > summary');
-                const summaryMd = summary ? inlineToMd(summary) : '';
-                const body = Array.from(block.childNodes)
-                    .filter(n => n !== summary)
-                    .map(n => {
-                        if (n.nodeType === Node.TEXT_NODE) return n.textContent.trim();
-                        if (n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName.toLowerCase())) {
-                            return blockToMd(n);
-                        }
-                        return n.nodeType === Node.ELEMENT_NODE ? inlineToMd(n) : '';
-                    })
-                    .filter(Boolean)
-                    .join('\n\n');
-                return `<details>\n<summary>${summaryMd}</summary>\n\n${body}\n\n</details>`;
-            }
-            case 'div': case 'section': {
-                // Callout block — preserve as inline HTML so re-opens
-                // re-render with the icon + styling intact.
-                if (block.classList && block.classList.contains('callout')) {
-                    const icon = block.getAttribute('data-icon') || '💡';
-                    const content = block.querySelector(':scope > .callout-content') || block;
-                    const innerMd = Array.from(content.childNodes)
-                        .map(n => {
-                            if (n.nodeType === Node.TEXT_NODE) return n.textContent.trim();
-                            if (n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName.toLowerCase())) {
-                                return blockToMd(n);
-                            }
-                            return n.nodeType === Node.ELEMENT_NODE ? inlineToMd(n) : '';
-                        })
-                        .filter(Boolean)
-                        .join('\n\n');
-                    return `<div class="callout" data-icon="${escHtml(icon)}">\n\n${innerMd}\n\n</div>`;
-                }
-                // Math block — store tex in data-tex, serialize as $$...$$
-                // for markdown compatibility but also keep the wrapping div
-                // with the data-tex so round-trip re-renders via KaTeX.
-                if (block.classList && block.classList.contains('math-block')) {
-                    const tex = block.getAttribute('data-tex') || '';
-                    return `<div class="math-block" data-tex="${escHtml(tex)}">\n\n$$${tex}$$\n\n</div>`;
-                }
-                // TOC block — preserve as inline HTML. Click handlers are
-                // re-bound on file load via rehydrateTOCBlocks.
-                if (block.classList && block.classList.contains('toc-block')) {
-                    return block.outerHTML;
-                }
-                // Transparent: recurse
-                return Array.from(block.childNodes)
-                    .map(n => n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName.toLowerCase())
-                        ? blockToMd(n)
-                        : (n.nodeType === Node.TEXT_NODE ? n.textContent : (n.nodeType === Node.ELEMENT_NODE ? inlineToMd(n) : '')))
-                    .filter(s => s.trim())
-                    .join('\n\n');
-            }
-            default: return inlineToMd(block);
-        }
-    }
-
-    /** Serialize the whole editor to Markdown. */
-    /** Serialize an <audio>/<video> element back to raw HTML with the clean
-     *  relative src so round-trips stay stable. */
-    function mediaTagToHtml(node) {
-        const tag = node.tagName.toLowerCase();
-        const src = node.getAttribute('data-src-original') || node.getAttribute('src') || '';
-        const controls = node.hasAttribute('controls') ? ' controls' : '';
-        const extra = tag === 'video' ? ' width="100%"' : '';
-        return `<${tag} src="${src}"${controls}${extra}></${tag}>`;
-    }
-
-    function domToMarkdown(editor) {
-        if (!editor) return '';
-        const parts = [];
-        for (const child of editor.childNodes) {
-            if (child.nodeType === Node.TEXT_NODE) {
-                const t = child.textContent.replace(/^\s+|\s+$/g, '');
-                if (t) parts.push(t);
-            } else if (child.nodeType === Node.ELEMENT_NODE) {
-                const childTag = child.tagName.toLowerCase();
-                // Top-level audio/video (rare — usually wrapped in <p> by
-                // marked, but possible after edits). Handle explicitly so
-                // they don't evaporate through the stray-inline branch.
-                if (childTag === 'audio' || childTag === 'video') {
-                    parts.push(mediaTagToHtml(child));
-                    continue;
-                }
-                if (BLOCK_TAGS.has(childTag)) {
-                    parts.push(blockToMd(child));
-                } else {
-                    // stray inline at top level — wrap as paragraph
-                    const t = inlineToMd(child);
-                    if (t.trim()) parts.push(t);
-                }
-            }
-        }
-        // Collapse triple-blank-lines, ensure trailing newline
-        return parts.join('\n\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '') + '\n';
-    }
+    // DOM ↔ Markdown conversion moved to editor/markdown.js:
+    //   BLOCK_TAGS, closestBlock, placeCaretAtStart, mediaTagToHtml,
+    //   inlineToMd, listToMd, tableToMd, blockToMd, domToMarkdown.
 
     // ---- Markdown shortcut detection ----
     // Patterns are matched against the block's leading text content when the
@@ -1973,39 +1703,7 @@ const contentEl = document.getElementById('content');
         return false;
     }
 
-    const ALLOWED_TAGS = new Set([
-        'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'strong', 'b', 'em', 'i', 'u', 'del', 's', 'strike', 'code',
-        'ul', 'ol', 'li', 'blockquote', 'pre', 'hr', 'a',
-        'table', 'thead', 'tbody', 'tr', 'th', 'td',
-        'img', 'details', 'summary', 'span',
-    ]);
-    function sanitizePastedHtml(raw) {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = raw;
-        // Strip elements not in the allow-list; strip disallowed attrs
-        const walk = (el) => {
-            const children = Array.from(el.children);
-            children.forEach(walk);
-            if (!ALLOWED_TAGS.has(el.tagName.toLowerCase())) {
-                // Replace with its text content
-                const text = document.createTextNode(el.textContent || '');
-                el.replaceWith(text);
-                return;
-            }
-            // Remove inline styles except on <span> (keep color/bg) and drop
-            // everything except href/src/alt/type/checked/start
-            const keepAttrs = new Set(['href', 'src', 'alt', 'type', 'checked', 'start']);
-            Array.from(el.attributes).forEach(attr => {
-                if (!keepAttrs.has(attr.name.toLowerCase())) {
-                    if (el.tagName.toLowerCase() === 'span' && attr.name === 'style') return;
-                    el.removeAttribute(attr.name);
-                }
-            });
-        };
-        Array.from(tmp.children).forEach(walk);
-        return tmp.innerHTML;
-    }
+    // sanitizePastedHtml moved to editor/markdown.js
 
     // ==================== Code block language picker ====================
     // Shown contextually: absolutely-positioned above the current <pre>
