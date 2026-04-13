@@ -62,6 +62,7 @@ import {
     getSavedBaseline,
     setSavedBaseline,
 } from './editor/auto-save.js';
+import { initHistoryModal } from './ui/history-modal.js';
 
 const contentEl = document.getElementById('content');
     const finder = document.getElementById('finder');
@@ -80,20 +81,11 @@ const contentEl = document.getElementById('content');
     const previewHelp = document.getElementById('previewHelp');
     const previewColorRules = document.getElementById('previewColorRules');
     const helpOverlay = document.getElementById('helpOverlay');
-    const historyOverlay = document.getElementById('historyOverlay');
-    const historyClose = document.getElementById('historyClose');
-    const historyList = document.getElementById('historyList');
-    const historyPreview = document.getElementById('historyPreview');
-    const historyRestore = document.getElementById('historyRestore');
 
     let currentFinderPath = '';
     let currentPreviewPath = '';
     let isInlineEditing = false;           // true when md/txt/code textarea is shown
     let currentFileData = null;            // { path, content, extension }
-    // History modal state
-    let currentSnapshots = [];
-    let selectedSnapshotTs = null;
-    let selectedSnapshotContent = null;
     // Markdown preview view mode: 'rendered' (Notion editor) | 'text' (raw <pre>)
     let _mdViewMode = 'rendered';
 
@@ -3478,115 +3470,9 @@ const contentEl = document.getElementById('content');
         });
     }
 
-    // ========== SNAPSHOT HISTORY MODAL ==========
-    function formatSnapshotTs(ts) {
-        // 20260409-120543-123 → 2026-04-09 12:05:43
-        if (!ts || ts.length < 15) return ts;
-        const y = ts.slice(0, 4), m = ts.slice(4, 6), d = ts.slice(6, 8);
-        const hh = ts.slice(9, 11), mm = ts.slice(11, 13), ss = ts.slice(13, 15);
-        return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
-    }
-
-    async function openHistoryModal() {
-        if (!currentFileData) return;
-        // Flush pending edits first so they're visible as the newest snapshot
-        await flushSave({ silent: true });
-        selectedSnapshotTs = null;
-        selectedSnapshotContent = null;
-        historyRestore.disabled = true;
-        historyPreview.innerHTML = '<div class="history-preview-empty">Select a snapshot to preview</div>';
-        historyList.innerHTML = '<div class="history-list-empty">Loading…</div>';
-        historyOverlay.classList.add('active');
-        try {
-            const res = await fetch(
-                `${BASE}/api/snapshots?path=${encodeURIComponent(currentFileData.path)}`,
-                fetchOpts
-            );
-            if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            currentSnapshots = data.snapshots || [];
-            if (currentSnapshots.length === 0) {
-                historyList.innerHTML = '<div class="history-list-empty">No snapshots yet.<br>Make a change to create one.</div>';
-                return;
-            }
-            historyList.innerHTML = currentSnapshots.map((s) => `
-                <div class="history-item" data-ts="${escHtml(s.ts)}">
-                    <div class="history-item-ts">${formatSnapshotTs(s.ts)}</div>
-                    <div class="history-item-size">${formatByteSize(s.size)}</div>
-                </div>
-            `).join('');
-            historyList.querySelectorAll('.history-item').forEach(el => {
-                el.addEventListener('click', () => {
-                    historyList.querySelectorAll('.history-item').forEach(x => x.classList.remove('active'));
-                    el.classList.add('active');
-                    loadSnapshotContent(el.dataset.ts);
-                });
-            });
-        } catch (err) {
-            historyList.innerHTML = `<div class="history-list-empty">Error: ${escHtml(err.message)}</div>`;
-        }
-    }
-
-    async function loadSnapshotContent(ts) {
-        selectedSnapshotTs = ts;
-        selectedSnapshotContent = null;
-        historyRestore.disabled = true;
-        historyPreview.innerHTML = '<div class="history-preview-empty">Loading…</div>';
-        try {
-            const url = `${BASE}/api/snapshots/content?path=${encodeURIComponent(currentFileData.path)}&ts=${encodeURIComponent(ts)}`;
-            const res = await fetch(url, fetchOpts);
-            if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            selectedSnapshotContent = data.content;
-            historyPreview.innerHTML = `<pre>${escHtml(data.content)}</pre>`;
-            historyRestore.disabled = false;
-        } catch (err) {
-            historyPreview.innerHTML = `<div class="history-preview-empty">Error: ${escHtml(err.message)}</div>`;
-        }
-    }
-
-    function closeHistoryModal() {
-        historyOverlay.classList.remove('active');
-        selectedSnapshotTs = null;
-        selectedSnapshotContent = null;
-    }
-
-    async function restoreSelectedSnapshot() {
-        if (!currentFileData || selectedSnapshotContent == null) return;
-        // Save restores as a normal write — the server takes a fresh snapshot
-        // of the current (pre-restore) content first, so the restore itself
-        // is reversible.
-        try {
-            const res = await fetch(`${BASE}/api/save`, mutFetchOpts({
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    path: currentFileData.path,
-                    content: selectedSnapshotContent,
-                }),
-            }));
-            if (!res.ok) throw new Error(await res.text());
-            currentFileData.content = selectedSnapshotContent;
-            setSavedBaseline(selectedSnapshotContent);
-            setSaveStatus('saved');
-            closeHistoryModal();
-            // Re-render the preview with the restored content
-            renderPreviewMode(currentFileData);
-        } catch (err) {
-            alert('Restore failed: ' + err.message);
-        }
-    }
-
-    previewHistory.addEventListener('click', openHistoryModal);
-    historyClose.addEventListener('click', closeHistoryModal);
-    historyOverlay.addEventListener('click', (e) => {
-        if (e.target === historyOverlay) closeHistoryModal();
-    });
-    historyRestore.addEventListener('click', restoreSelectedSnapshot);
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && historyOverlay.classList.contains('active')) {
-            closeHistoryModal();
-        }
+    initHistoryModal({
+        getFile: () => currentFileData,
+        onRestored: () => { if (currentFileData) renderPreviewMode(currentFileData); },
     });
 
     async function loadPreviewContent(path) {
