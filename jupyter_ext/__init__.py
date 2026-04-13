@@ -433,6 +433,10 @@ class WorkspaceStaticHandler(BaseHandler):
         }
         ct = content_types.get(filepath.suffix, 'application/octet-stream')
         self.set_header("Content-Type", ct)
+        # JS/CSS/HTML iterate fast; tell browsers to revalidate every load
+        # so users don't get stuck on a cached pre-fix version after a deploy.
+        if filepath.suffix in ('.css', '.js', '.html'):
+            self.set_header("Cache-Control", "no-cache, must-revalidate")
         self.finish(filepath.read_bytes())
 
 
