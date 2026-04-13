@@ -1,41 +1,52 @@
 // ========== KEYBOARD / VIEWPORT GUARD ==========
-// Prevents body-level scroll when the mobile virtual keyboard appears.
-// Shared by both the file-browser (index.html) and the terminal page
-// (terminal.html) — the behaviour is identical, the only assumption is
-// that the root layout element has class "layout".
+// Keeps the focused input visible when the mobile virtual keyboard opens,
+// for both the file-browser (index.html) and the terminal page — the
+// only assumption is that the root layout element has class "layout".
 //
 // Strategy (layered, most-capable API first):
 //   1. VirtualKeyboard API (Chromium 94+) — keyboard overlays content;
-//      CSS env(keyboard-inset-height) on .layout handles the spacing.
+//      CSS env(keyboard-inset-height) on .layout reserves space so the
+//      internal scroll container (.preview-body / terminal) still sees
+//      the focused input above the keyboard.
 //   2. visualViewport fallback — resize .layout to the visual viewport
-//      height when the keyboard resizes the page.
-//   3. Scroll pin — html/body are position:fixed, so any non-zero scroll
-//      is a browser quirk; snap it back to (0,0).
+//      height so internal scroll containers shrink to fit above the
+//      keyboard. Required for Safari / non-Chromium browsers.
+//   3. On focus, nudge the focused element into the visible area of
+//      whatever scroll container it lives in (block:'nearest' so the
+//      viewport isn't yanked around when the input is already visible).
+//
+// History: an earlier version pinned window.scrollY to 0 on every scroll
+// event. That fought the browser's native "scroll-focused-input-into-
+// view" behaviour and left inputs hidden behind the keyboard on touch
+// devices. Body is position:fixed now (see style.css / terminal.css),
+// so there's nothing left for the window to scroll — the pin is gone.
 (function initKeyboardGuard() {
     const layout = document.querySelector('.layout');
 
     // ---- VirtualKeyboard API (Chromium) ----
     if ('virtualKeyboard' in navigator) {
         navigator.virtualKeyboard.overlaysContent = true;
-        // CSS env(keyboard-inset-height) on .layout handles the rest.
-        // We still pin scroll as a safety net below.
+        // CSS env(keyboard-inset-height) on .layout handles the spacing.
     }
 
-    // ---- Scroll pin ----
-    function pinScroll() {
-        if (window.scrollY !== 0 || window.scrollX !== 0) {
-            window.scrollTo(0, 0);
-        }
+    // ---- Focus-into-view ----
+    // When an input / textarea / contenteditable gets focus, give the
+    // keyboard a beat to open, then scroll the element into view inside
+    // its nearest scrollable ancestor.
+    function scrollFocusIntoView(el) {
+        if (!el || typeof el.scrollIntoView !== 'function') return;
+        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {}
     }
-    window.addEventListener('scroll', pinScroll);
-
-    // On input focus, browsers may auto-scroll to the focused element.
-    // Undo that on the next frame.
-    document.addEventListener('focusin', () => {
-        requestAnimationFrame(pinScroll);
+    document.addEventListener('focusin', (e) => {
+        const el = e.target;
+        if (!el) return;
+        // Two-stage nudge: once right away, once after the keyboard
+        // animation finishes so the final layout is what we measure.
+        requestAnimationFrame(() => scrollFocusIntoView(el));
+        setTimeout(() => scrollFocusIntoView(el), 350);
     });
 
-    // ---- visualViewport fallback (for browsers without VirtualKeyboard API) ----
+    // ---- visualViewport fallback (browsers without VirtualKeyboard API) ----
     if (window.visualViewport && !('virtualKeyboard' in navigator)) {
         const vv = window.visualViewport;
         let rafId = null;
@@ -45,7 +56,10 @@
             rafId = requestAnimationFrame(() => {
                 rafId = null;
                 if (layout) layout.style.height = Math.round(vv.height) + 'px';
-                pinScroll();
+                // After resize, re-scroll the focused element into view
+                // (keyboard may have just opened/closed).
+                const focused = document.activeElement;
+                if (focused && focused !== document.body) scrollFocusIntoView(focused);
             });
         }
 
