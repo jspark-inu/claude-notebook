@@ -73,8 +73,6 @@ const contentEl = document.getElementById('content');
     let currentPreviewPath = '';
     let isInlineEditing = false;           // true when md/txt/code textarea is shown
     let currentFileData = null;            // { path, content, extension }
-    // Markdown preview view mode: 'rendered' (Notion editor) | 'text' (raw <pre>)
-    let _mdViewMode = 'rendered';
 
     initSidebar();
     initKeyboardHelp();
@@ -139,7 +137,6 @@ const contentEl = document.getElementById('content');
             previewViewToggle.textContent = 'Text';
             previewViewToggle.title = 'Switch to plain text view';
         }
-        _mdViewMode = 'rendered';
         previewColorRules.style.display = 'none';
         loadPreviewContent(path);
         updateHash(path);
@@ -166,7 +163,6 @@ const contentEl = document.getElementById('content');
             previewViewToggle.textContent = 'Text';
             previewViewToggle.title = 'Switch to plain text view';
         }
-        _mdViewMode = 'rendered';
         previewColorRules.style.display = 'none';
         setSaveStatus('idle');
         updateHash(getFinderDir());
@@ -351,7 +347,6 @@ const contentEl = document.getElementById('content');
                 previewViewToggle.textContent = 'Text';
                 previewViewToggle.title = 'Switch to plain text view';
             }
-            _mdViewMode = 'rendered';
             // Use the serialized form as baseline so no-op opens don't dirty
             // the file just because the round-trip isn't byte-identical.
             setSavedBaseline(domToMarkdown(editor));

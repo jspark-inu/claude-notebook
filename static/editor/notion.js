@@ -17,11 +17,11 @@
  * and are imported here.
  */
 
-import { BASE, fetchOpts, mutFetchOpts, apiRawUrl } from '../core/api.js';
+import { BASE, fetchOpts, mutFetchOpts, apiRawUrl, fetchTreeLevel } from '../core/api.js';
 import {
     escHtml,
     IMAGE_EXTS, AUDIO_EXTS, VIDEO_EXTS,
-    getFileIcon, isMobile,
+    getFileIcon, isMobile, resolveRelPath, rewriteRelativeMediaUrls,
 } from '../core/utils.js';
 import {
     BLOCK_TAGS,
@@ -1240,6 +1240,9 @@ function updateFocusedBlock(editor) {
 // 'rendered' = Notion-like editor (default). 'text' = raw markdown source as <pre>.
 // `_mdViewMode` is declared at the top of the IIFE alongside other preview state.
 
+const MD_EXTS = ['.md', '.markdown'];
+let _mdViewMode = 'rendered'; // 'rendered' | 'text'
+
 function setMarkdownViewMode(mode) {
     if (!getFile() || !MD_EXTS.includes(getFile().extension)) return;
     if (mode === _mdViewMode) return;
@@ -1726,6 +1729,14 @@ function performBlockAction(editor, block, act) {
 /** Wire a contenteditable markdown editor. */
 function setupNotionEditor(editor) {
     if (!editor) return;
+    // Reset view-mode state on every fresh editor wiring (a new file open
+    // or a manual switch back from text view) so the toggle's first click
+    // always swaps to text and not the other way around.
+    _mdViewMode = 'rendered';
+    if (previewViewToggle) {
+        previewViewToggle.textContent = 'Text';
+        previewViewToggle.title = 'Switch to plain text view';
+    }
     editor.setAttribute('contenteditable', 'true');
     editor.setAttribute('spellcheck', 'false');
 
