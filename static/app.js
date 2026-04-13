@@ -32,14 +32,7 @@ import {
 } from './core/utils.js';
 import { initSidebar } from './ui/sidebar.js';
 import { initTree, loadTree } from './ui/tree.js';
-import {
-    downloadFile,
-    downloadPaths,
-    deleteItem as deleteItemApi,
-    deletePaths,
-    renameItem as renameItemApi,
-    initFileOpsButtons,
-} from './ui/file-ops.js';
+import { downloadFile, initFileOpsButtons } from './ui/file-ops.js';
 import {
     BLOCK_TAGS,
     closestBlock,
@@ -64,6 +57,7 @@ import {
 } from './editor/auto-save.js';
 import { initHistoryModal } from './ui/history-modal.js';
 import { initUpload } from './ui/upload.js';
+import { initFinder, loadFinderGrid, getCurrentDir as getFinderDir } from './ui/finder.js';
 import {
     CSV_EXTS,
     initCsv,
@@ -84,9 +78,6 @@ import {
 
 const contentEl = document.getElementById('content');
     const finder = document.getElementById('finder');
-    const finderGrid = document.getElementById('finderGrid');
-    const finderBreadcrumb = document.getElementById('finderBreadcrumb');
-    const finderEmpty = document.getElementById('finderEmpty');
     const previewOverlay = document.getElementById('previewOverlay');
     const previewBody = document.getElementById('previewBody');
     const previewBreadcrumb = document.getElementById('previewBreadcrumb');
@@ -99,7 +90,6 @@ const contentEl = document.getElementById('content');
     const previewColorRules = document.getElementById('previewColorRules');
     const helpOverlay = document.getElementById('helpOverlay');
 
-    let currentFinderPath = '';
     let currentPreviewPath = '';
     let isInlineEditing = false;           // true when md/txt/code textarea is shown
     let currentFileData = null;            // { path, content, extension }
@@ -108,9 +98,17 @@ const contentEl = document.getElementById('content');
 
     initSidebar();
     initCsv({ getFilePath: () => currentFileData ? currentFileData.path : '' });
+    initFinder({
+        openFile: (path) => openPreview(path),
+        onNavigate: (dirPath) => {
+            updateHash(dirPath);
+            const folderName = dirPath.split('/').pop() || 'Workspace';
+            document.title = folderName + ' - Claude Notebook';
+        },
+    });
     initUpload({
-        getCurrentDir: () => currentFinderPath,
-        onUploaded: () => { loadFinderGrid(currentFinderPath); loadTree(); },
+        getCurrentDir: getFinderDir,
+        onUploaded: () => { loadFinderGrid(getFinderDir()); loadTree(); },
     });
 
     // Configure marked
@@ -124,374 +122,14 @@ const contentEl = document.getElementById('content');
         return i === -1 ? '' : p.slice(0, i);
     }
 
-    // === Multi-select state ===
-    let selectedPaths = new Set();
-    let lastClickedIndex = -1;
-    let currentItems = [];
-    let _rubberBandUsed = false; // set true when rubber-band drag selects items
-
-    // === View mode state ===
-    let viewMode = localStorage.getItem('finderViewMode') || 'grid'; // 'grid' | 'detail'
-    let detailSortKey = 'name'; // 'name' | 'mtime' | 'size' | 'type'
-    let detailSortDesc = false;
-
-    function clearSelection() {
-        selectedPaths.clear();
-        lastClickedIndex = -1;
-        finderGrid.querySelectorAll('.finder-item.selected').forEach(el => el.classList.remove('selected'));
-        updateSelectionBar();
-    }
-
-    function updateSelectionBar() {
-        let bar = document.getElementById('selectionBar');
-        if (selectedPaths.size === 0) {
-            if (bar) bar.style.display = 'none';
-            return;
-        }
-        if (!bar) {
-            bar = document.createElement('div');
-            bar.id = 'selectionBar';
-            bar.className = 'selection-bar';
-            const finder = document.getElementById('finder');
-            finder.insertBefore(bar, finderGrid);
-        }
-        bar.style.display = '';
-        bar.innerHTML = `
-            <span class="selection-bar-count">${selectedPaths.size} selected</span>
-            <div class="selection-bar-actions">
-                <button class="selection-bar-btn" id="selDownloadBtn" title="Download selected">📥 Download</button>
-                <button class="selection-bar-btn danger" id="selDeleteBtn" title="Delete selected">🗑 Delete</button>
-                <button class="selection-bar-btn" id="selCancelBtn" title="Clear selection">✕</button>
-            </div>`;
-        document.getElementById('selCancelBtn').addEventListener('click', clearSelection);
-        document.getElementById('selDeleteBtn').addEventListener('click', deleteSelected);
-        document.getElementById('selDownloadBtn').addEventListener('click', downloadSelected);
-    }
-
     function refreshWorkspaceViews() {
-        loadFinderGrid(currentFinderPath);
+        loadFinderGrid(getFinderDir());
         loadTree();
     }
 
-    async function deleteSelected() {
-        const ok = await deletePaths([...selectedPaths], refreshWorkspaceViews);
-        if (ok) clearSelection();
-    }
-
-    function downloadSelected() {
-        return downloadPaths([...selectedPaths]);
-    }
-
-    function deleteItem(item) {
-        return deleteItemApi(item, refreshWorkspaceViews);
-    }
-
-    function renameItem(item) {
-        return renameItemApi(item, refreshWorkspaceViews);
-    }
-
-    // === Finder Grid/Detail view ===
-    function sortItems(items) {
-        const dirFirst = (a, b) => (a.type !== b.type) ? (a.type === 'directory' ? -1 : 1) : 0;
-        items.sort((a, b) => {
-            const d = dirFirst(a, b);
-            if (d !== 0) return d;
-            let cmp = 0;
-            if (detailSortKey === 'name') cmp = a.name.localeCompare(b.name);
-            else if (detailSortKey === 'mtime') cmp = (a.mtime || 0) - (b.mtime || 0);
-            else if (detailSortKey === 'size') cmp = (a.size || 0) - (b.size || 0);
-            else if (detailSortKey === 'type') cmp = fileTypeLabel(a).localeCompare(fileTypeLabel(b));
-            return detailSortDesc ? -cmp : cmp;
-        });
-    }
-
-    function attachItemEvents(el, item, idx) {
-        el.addEventListener('click', (e) => {
-            if (_rubberBandUsed) return;
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                if (selectedPaths.has(item.path)) {
-                    selectedPaths.delete(item.path);
-                    el.classList.remove('selected');
-                } else {
-                    selectedPaths.add(item.path);
-                    el.classList.add('selected');
-                }
-                lastClickedIndex = idx;
-                updateSelectionBar();
-            } else if (e.shiftKey && lastClickedIndex >= 0) {
-                e.preventDefault();
-                const start = Math.min(lastClickedIndex, idx);
-                const end = Math.max(lastClickedIndex, idx);
-                const rows = finderGrid.children;
-                for (let i = start; i <= end; i++) {
-                    selectedPaths.add(currentItems[i].path);
-                    if (rows[i]) rows[i].classList.add('selected');
-                }
-                updateSelectionBar();
-            } else {
-                if (selectedPaths.size > 0) { clearSelection(); return; }
-                if (item.type === 'directory') loadFinderGrid(item.path);
-                else openPreview(item.path);
-            }
-        });
-        el.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            if (selectedPaths.size > 1 && selectedPaths.has(item.path)) {
-                showMultiContextMenu(e.clientX, e.clientY);
-            } else {
-                clearSelection();
-                showContextMenu(e.clientX, e.clientY, item);
-            }
-        });
-    }
-
-    function renderGridView(items) {
-        finderGrid.className = 'finder-grid';
-        finderGrid.innerHTML = '';
-        items.forEach((item, idx) => {
-            const el = document.createElement('div');
-            el.className = 'finder-item';
-            el.dataset.path = item.path;
-            el.dataset.type = item.type;
-            el.dataset.name = item.name;
-            el.dataset.index = idx;
-            const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
-            el.innerHTML = `<div class="finder-item-icon">${icon}</div><div class="finder-item-name">${escHtml(item.name)}</div>`;
-            attachItemEvents(el, item, idx);
-            finderGrid.appendChild(el);
-        });
-    }
-
-    function renderDetailView(items) {
-        finderGrid.className = 'finder-detail';
-        const arrow = (key) => detailSortKey === key ? (detailSortDesc ? ' ▼' : ' ▲') : '';
-        let html = `<div class="finder-detail-header">
-            <div class="fd-col fd-col-name" data-sort="name">이름${arrow('name')}</div>
-            <div class="fd-col fd-col-mtime" data-sort="mtime">수정한 날짜${arrow('mtime')}</div>
-            <div class="fd-col fd-col-type" data-sort="type">유형${arrow('type')}</div>
-            <div class="fd-col fd-col-size" data-sort="size">크기${arrow('size')}</div>
-        </div>`;
-        finderGrid.innerHTML = html;
-        items.forEach((item, idx) => {
-            const row = document.createElement('div');
-            row.className = 'finder-item finder-detail-row';
-            row.dataset.path = item.path;
-            row.dataset.type = item.type;
-            row.dataset.name = item.name;
-            row.dataset.index = idx;
-            const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
-            row.innerHTML = `
-                <div class="fd-col fd-col-name"><span class="fd-icon">${icon}</span><span class="fd-name">${escHtml(item.name)}</span></div>
-                <div class="fd-col fd-col-mtime">${formatMtime(item.mtime)}</div>
-                <div class="fd-col fd-col-type">${fileTypeLabel(item)}</div>
-                <div class="fd-col fd-col-size">${item.type === 'directory' ? '' : formatFileSize(item.size)}</div>
-            `;
-            attachItemEvents(row, item, idx);
-            finderGrid.appendChild(row);
-        });
-        // Header sort click
-        finderGrid.querySelectorAll('.finder-detail-header .fd-col[data-sort]').forEach(col => {
-            col.addEventListener('click', () => {
-                const key = col.dataset.sort;
-                if (detailSortKey === key) detailSortDesc = !detailSortDesc;
-                else { detailSortKey = key; detailSortDesc = false; }
-                loadFinderGrid(currentFinderPath);
-            });
-        });
-    }
-
-    async function loadFinderGrid(dirPath) {
-        currentFinderPath = dirPath || '';
-        selectedPaths.clear();
-        updateSelectionBar();
-        try {
-            const items = await fetchTreeLevel(dirPath);
-            currentItems = items;
-            sortItems(items);
-            if (items.length === 0) {
-                finderEmpty.style.display = '';
-                finderGrid.style.display = 'none';
-                finderGrid.innerHTML = '';
-            } else {
-                finderEmpty.style.display = 'none';
-                finderGrid.style.display = '';
-                if (viewMode === 'detail') renderDetailView(items);
-                else renderGridView(items);
-            }
-            updateFinderBreadcrumb(dirPath);
-        } catch (err) {
-            finderGrid.innerHTML = `<div style="padding:20px;color:var(--text-secondary);">Error: ${escHtml(err.message)}</div>`;
-        }
-    }
-
-    // View toggle button
-    (function setupViewToggle() {
-        const btn = document.getElementById('viewToggleBtn');
-        if (!btn) return;
-        const iconGrid = document.getElementById('viewToggleIconGrid');
-        const iconList = document.getElementById('viewToggleIconList');
-        function updateIcon() {
-            // Show the icon that represents what you'll SWITCH TO
-            if (viewMode === 'grid') { iconGrid.style.display = 'none'; iconList.style.display = ''; btn.title = '자세히 보기'; }
-            else { iconGrid.style.display = ''; iconList.style.display = 'none'; btn.title = '큰 아이콘 보기'; }
-        }
-        updateIcon();
-        btn.addEventListener('click', () => {
-            viewMode = viewMode === 'grid' ? 'detail' : 'grid';
-            localStorage.setItem('finderViewMode', viewMode);
-            updateIcon();
-            loadFinderGrid(currentFinderPath);
-        });
-    })();
-
-    function updateFinderBreadcrumb(dirPath) {
-        const parts = dirPath ? dirPath.split('/') : [];
-        let html = '<span data-path="">Workspace</span>';
-        let accumulated = '';
-        parts.forEach((p) => {
-            accumulated += (accumulated ? '/' : '') + p;
-            html += `<span class="sep">/</span><span data-path="${escHtml(accumulated)}">${escHtml(p)}</span>`;
-        });
-        finderBreadcrumb.innerHTML = html;
-        finderBreadcrumb.querySelectorAll('span[data-path]').forEach((el) => {
-            el.addEventListener('click', () => loadFinderGrid(el.dataset.path));
-        });
-    }
-
-    // === Rubber-band drag selection (Windows-style) ===
-    (function setupRubberBand() {
-        let rbEl = null;     // the visual rectangle element
-        let rbActive = false;
-        let rbStartX = 0, rbStartY = 0;
-        const finder = document.getElementById('finder');
-
-        // Create rubber-band element once
-        rbEl = document.createElement('div');
-        rbEl.className = 'rubber-band';
-        rbEl.style.display = 'none';
-        finder.style.position = 'relative';
-        finder.appendChild(rbEl);
-
-        function rectsIntersect(a, b) {
-            return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
-        }
-
-        finder.addEventListener('mousedown', (e) => {
-            // Only start on empty space (not on items, buttons, inputs)
-            if (e.target.closest('.finder-item, .finder-btn, .finder-toolbar, .selection-bar, label, input, button')) return;
-            if (e.button !== 0) return;
-            rbActive = true;
-            _rubberBandUsed = false;
-            const finderRect = finder.getBoundingClientRect();
-            rbStartX = e.clientX - finderRect.left + finder.scrollLeft;
-            rbStartY = e.clientY - finderRect.top + finder.scrollTop;
-            rbEl.style.left = rbStartX + 'px';
-            rbEl.style.top = rbStartY + 'px';
-            rbEl.style.width = '0';
-            rbEl.style.height = '0';
-            rbEl.style.display = 'block';
-            // Clear previous selection unless Ctrl held
-            if (!e.ctrlKey && !e.metaKey) clearSelection();
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (!rbActive) return;
-            const finderRect = finder.getBoundingClientRect();
-            const curX = e.clientX - finderRect.left + finder.scrollLeft;
-            const curY = e.clientY - finderRect.top + finder.scrollTop;
-            const x = Math.min(rbStartX, curX);
-            const y = Math.min(rbStartY, curY);
-            const w = Math.abs(curX - rbStartX);
-            const h = Math.abs(curY - rbStartY);
-            rbEl.style.left = x + 'px';
-            rbEl.style.top = y + 'px';
-            rbEl.style.width = w + 'px';
-            rbEl.style.height = h + 'px';
-
-            // Hit-test items against rubber-band rect
-            if (w > 4 || h > 4) {
-                _rubberBandUsed = true;
-                const bandRect = { left: x + finderRect.left - finder.scrollLeft, top: y + finderRect.top - finder.scrollTop, right: x + w + finderRect.left - finder.scrollLeft, bottom: y + h + finderRect.top - finder.scrollTop };
-                selectedPaths.clear();
-                finderGrid.querySelectorAll('.finder-item').forEach((el) => {
-                    const itemRect = el.getBoundingClientRect();
-                    if (rectsIntersect(bandRect, itemRect)) {
-                        selectedPaths.add(el.dataset.path);
-                        el.classList.add('selected');
-                    } else {
-                        el.classList.remove('selected');
-                    }
-                });
-                updateSelectionBar();
-            }
-        });
-
-        document.addEventListener('mouseup', () => {
-            if (!rbActive) return;
-            rbActive = false;
-            rbEl.style.display = 'none';
-            // Reset flag after a tick so click handler can check it
-            if (_rubberBandUsed) setTimeout(() => { _rubberBandUsed = false; }, 10);
-        });
-    })();
-
-    // === Context Menu ===
-    let contextEl = null;
-    function showContextMenu(x, y, item) {
-        hideContextMenu();
-        contextEl = document.createElement('div');
-        contextEl.className = 'finder-context';
-        contextEl.style.left = x + 'px';
-        contextEl.style.top = y + 'px';
-        const actions = [];
-        actions.push({ label: '✏️ Rename', action: () => renameItem(item) });
-        actions.push({ label: '📥 Download', action: () => downloadFile(item.path) });
-        actions.push({ label: '🗑 Delete', cls: 'danger', action: () => deleteItem(item) });
-        actions.forEach(({ label, cls, action }) => {
-            const el = document.createElement('div');
-            el.className = 'finder-context-item' + (cls ? ' ' + cls : '');
-            el.textContent = label;
-            el.addEventListener('click', () => { hideContextMenu(); action(); });
-            contextEl.appendChild(el);
-        });
-        document.body.appendChild(contextEl);
-        // Adjust if off-screen
-        const rect = contextEl.getBoundingClientRect();
-        if (rect.right > window.innerWidth) contextEl.style.left = (x - rect.width) + 'px';
-        if (rect.bottom > window.innerHeight) contextEl.style.top = (y - rect.height) + 'px';
-    }
-    function showMultiContextMenu(x, y) {
-        hideContextMenu();
-        contextEl = document.createElement('div');
-        contextEl.className = 'finder-context';
-        contextEl.style.left = x + 'px';
-        contextEl.style.top = y + 'px';
-        const count = selectedPaths.size;
-        const actions = [
-            { label: `📥 Download ${count} items`, action: () => downloadSelected() },
-            { label: `🗑 Delete ${count} items`, cls: 'danger', action: () => deleteSelected() },
-        ];
-        actions.forEach(({ label, cls, action }) => {
-            const el = document.createElement('div');
-            el.className = 'finder-context-item' + (cls ? ' ' + cls : '');
-            el.textContent = label;
-            el.addEventListener('click', () => { hideContextMenu(); action(); });
-            contextEl.appendChild(el);
-        });
-        document.body.appendChild(contextEl);
-        const rect = contextEl.getBoundingClientRect();
-        if (rect.right > window.innerWidth) contextEl.style.left = (x - rect.width) + 'px';
-        if (rect.bottom > window.innerHeight) contextEl.style.top = (y - rect.height) + 'px';
-    }
-
-    function hideContextMenu() {
-        if (contextEl) { contextEl.remove(); contextEl = null; }
-    }
-    document.addEventListener('click', hideContextMenu);
 
     initFileOpsButtons({
-        getCurrentDir: () => currentFinderPath,
+        getCurrentDir: getFinderDir,
         onChanged: refreshWorkspaceViews,
     });
 
@@ -546,8 +184,8 @@ const contentEl = document.getElementById('content');
         _mdViewMode = 'rendered';
         previewColorRules.style.display = 'none';
         setSaveStatus('idle');
-        updateHash(currentFinderPath);
-        const folderName = currentFinderPath.split('/').pop() || 'Workspace';
+        updateHash(getFinderDir());
+        const folderName = getFinderDir().split('/').pop() || 'Workspace';
         document.title = folderName + ' - Claude Notebook';
     }
     previewClose.addEventListener('click', closePreviewFn);
@@ -3314,15 +2952,6 @@ const contentEl = document.getElementById('content');
         }
     }
 
-
-    // Patch loadFinderGrid to update hash and title
-    const _origLoadFinderGrid = loadFinderGrid;
-    loadFinderGrid = function(dirPath) {
-        updateHash(dirPath);
-        const folderName = dirPath.split('/').pop() || 'Workspace';
-        document.title = folderName + ' - Claude Notebook';
-        return _origLoadFinderGrid(dirPath);
-    };
 
     window.addEventListener('hashchange', syncHashToPath);
     window.addEventListener('popstate', syncHashToPath);
