@@ -115,6 +115,25 @@ function getXsrf() {
     return m ? decodeURIComponent(m[1]) : '';
 }
 
+// Thin wrapper around fetch() for Jupyter API calls. Centralises the
+// JUPYTER base + XSRF header and — crucially — throws on non-OK responses.
+// `fetch` itself only rejects on network failures, so every previous
+// call had to remember to check `res.ok` manually. Missing that check is
+// what caused the "X-button removes name but not terminal" bug: a failing
+// DELETE silently proceeded to wipe the slot config while the session
+// stayed alive on the server.
+async function jupyterFetch(path, init = {}) {
+    const headers = { ...(init.headers || {}), 'X-XSRFToken': getXsrf() };
+    const res = await fetch(JUPYTER + path, { ...init, headers });
+    if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        const err = new Error(`${init.method || 'GET'} ${path} → ${res.status} ${body}`);
+        err.status = res.status;
+        throw err;
+    }
+    return res;
+}
+
 let inputBarManualHeight = 0; // 0 = auto mode
 
 function autoResizeInput() {
@@ -531,13 +550,30 @@ async function renameTerminal(name, displayName, command, chatModeFlag) {
     await loadTerminals();
 }
 
-// Delete terminal
+// Delete terminal.
+// Bug history: previously used a bare `fetch(...)` without checking res.ok,
+// so a 500/502 on the Jupyter side silently flowed into removeServerSlot()
+// and wiped only the display-name slot while the actual terminal session
+// kept running. Result: on next loadTerminals() the session reappeared with
+// a fallback "Terminal {id}" label — the "X just deletes the name" symptom.
+// Fix: delegate to jupyterFetch() (throws on non-OK), treat 404 as "already
+// gone" (still safe to clear the slot), and surface any other failure to
+// the user without touching the slot map.
 async function deleteTerminal(name) {
+    let serverGone = false;
     try {
-        await fetch(JUPYTER + '/api/terminals/' + name, {
-            method: 'DELETE',
-            headers: { 'X-XSRFToken': getXsrf() },
-        });
+        await jupyterFetch('/api/terminals/' + name, { method: 'DELETE' });
+        serverGone = true;
+    } catch (e) {
+        if (e.status === 404) {
+            serverGone = true;  // already deleted server-side; slot cleanup still valid
+        } else {
+            alert('Failed to delete terminal');
+            return;  // leave slot intact so the user can retry
+        }
+    }
+
+    if (serverGone) {
         const slot = slotMap[name];
         if (slot) await removeServerSlot(slot);
         if (name === currentName) {
@@ -553,8 +589,6 @@ async function deleteTerminal(name) {
             document.title = 'Terminal - Claude Notebook';
         }
         await loadTerminals();
-    } catch (e) {
-        alert('Failed to delete terminal');
     }
 }
 
@@ -1440,59 +1474,8 @@ scrollbar.addEventListener('click', (e) => {
 // Update scrollbar periodically (fallback for edge cases)
 setInterval(updateScrollbar, 1000);
 
-// ========== KEYBOARD / VIEWPORT MANAGEMENT ==========
-// Goal: prevent any body-level scroll when virtual keyboard appears.
-//
-// Strategy (layered, most-capable API first):
-//  1. VirtualKeyboard API (Chromium 94+) — keyboard overlays content,
-//     CSS env(keyboard-inset-height) handles spacing. No JS layout needed.
-//  2. visualViewport fallback — resize .layout to visual viewport height.
-//  3. Scroll pin — always keep window at (0,0).
-
-(function initKeyboardGuard() {
-    const layout = document.querySelector('.layout');
-
-    // ---- VirtualKeyboard API (Chromium) ----
-    if ('virtualKeyboard' in navigator) {
-        navigator.virtualKeyboard.overlaysContent = true;
-        // CSS env(keyboard-inset-height) on .layout handles the rest.
-        // We still pin scroll as a safety net.
-    }
-
-    // ---- Scroll pin ----
-    // Body is position:fixed; any scrollY != 0 is a browser quirk.
-    function pinScroll() {
-        if (window.scrollY !== 0 || window.scrollX !== 0) {
-            window.scrollTo(0, 0);
-        }
-    }
-    // Use non-passive so we can act immediately
-    window.addEventListener('scroll', pinScroll);
-
-    // On input focus, browsers may auto-scroll to the element.
-    // Undo that on the next frame.
-    document.addEventListener('focusin', () => {
-        requestAnimationFrame(pinScroll);
-    });
-
-    // ---- visualViewport fallback (for browsers without VirtualKeyboard API) ----
-    if (window.visualViewport && !('virtualKeyboard' in navigator)) {
-        const vv = window.visualViewport;
-        let rafId = null;
-
-        function onViewportChange() {
-            if (rafId) return;
-            rafId = requestAnimationFrame(() => {
-                rafId = null;
-                if (layout) layout.style.height = Math.round(vv.height) + 'px';
-                pinScroll();
-            });
-        }
-
-        vv.addEventListener('resize', onViewportChange);
-        vv.addEventListener('scroll', onViewportChange);
-    }
-})();
+// NOTE: mobile virtual-keyboard / viewport handling lives in the shared
+// `static/keyboard-guard.js` module, loaded by terminal.html before this file.
 
 // ========== INIT ==========
 

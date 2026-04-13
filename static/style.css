@@ -65,6 +65,13 @@ html, body {
     font-size: 16px;
     color: var(--text);
     background: var(--bg);
+    /* Lock the page so the mobile virtual keyboard cannot scroll it. Internal
+       scroll containers (.tree, .finder-grid, .preview-body, modals) already
+       declare their own overflow, so this only affects the body. */
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    overscroll-behavior: none;
 }
 
 /* Keyboard focus ring — only shows for keyboard users, not mouse clicks.
@@ -87,10 +94,15 @@ button:focus-visible,
     outline-offset: -2px;
 }
 
-/* === Layout === */
+/* === Layout ===
+   Uses dvh so the viewport shrinks with the mobile URL bar / virtual keyboard.
+   env(keyboard-inset-height) reserves space when the VirtualKeyboard API is
+   active (Chromium). Fallback for browsers without dvh stays on 100vh. */
 .layout {
     display: flex;
     height: 100vh;
+    height: 100dvh;
+    padding-bottom: env(keyboard-inset-height, 0px);
 }
 
 /* === Sidebar === */
