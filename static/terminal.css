@@ -122,13 +122,17 @@ html, body {
     outline-offset: -2px;
 }
 
-/* Layout — uses dvh so keyboard doesn't cause scroll.
-   env(keyboard-inset-height) adds bottom space when VirtualKeyboard API is active. */
+/* Layout — uses dvh so the URL bar doesn't cause scroll. The padding-bottom
+   takes the larger of two keyboard-height signals so the input bar always
+   sits above the keyboard:
+     - env(keyboard-inset-height): Chromium VirtualKeyboard API
+     - var(--kbd-h):               iOS Safari + others, set by keyboard-guard.js
+                                   from window.visualViewport. */
 .layout {
     display: flex;
     height: 100vh;
     height: 100dvh;
-    padding-bottom: env(keyboard-inset-height, 0px);
+    padding-bottom: max(env(keyboard-inset-height, 0px), var(--kbd-h, 0px));
 }
 
 /* Sidebar */

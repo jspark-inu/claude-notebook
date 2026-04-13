@@ -95,14 +95,16 @@ button:focus-visible,
 }
 
 /* === Layout ===
-   Uses dvh so the viewport shrinks with the mobile URL bar / virtual keyboard.
-   env(keyboard-inset-height) reserves space when the VirtualKeyboard API is
-   active (Chromium). Fallback for browsers without dvh stays on 100vh. */
+   Uses dvh so the URL bar doesn't cause scroll. padding-bottom reserves
+   space for the mobile keyboard from whichever signal the browser supports:
+     - env(keyboard-inset-height): Chromium VirtualKeyboard API
+     - var(--kbd-h):               iOS Safari + others, set by keyboard-guard.js
+                                   from window.visualViewport. */
 .layout {
     display: flex;
     height: 100vh;
     height: 100dvh;
-    padding-bottom: env(keyboard-inset-height, 0px);
+    padding-bottom: max(env(keyboard-inset-height, 0px), var(--kbd-h, 0px));
 }
 
 /* === Sidebar === */
