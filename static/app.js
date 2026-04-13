@@ -64,6 +64,7 @@ import {
 } from './editor/colors.js';
 import { insertMathBlock, rehydrateMathBlocks } from './editor/math.js';
 import { insertTOC, rehydrateTOCBlocks } from './editor/toc.js';
+import { insertCallout } from './editor/callout.js';
 import { initHistoryModal } from './ui/history-modal.js';
 import { initUpload } from './ui/upload.js';
 import { initFinder, loadFinderGrid, getCurrentDir as getFinderDir } from './ui/finder.js';
@@ -1594,38 +1595,7 @@ const contentEl = document.getElementById('content');
         return true;
     }
 
-    // ==================== Callout block ====================
-    function insertCallout(editor) {
-        const sel = window.getSelection();
-        if (!sel.rangeCount) return;
-        const block = closestBlock(sel.getRangeAt(0).startContainer, editor);
-        if (!block) return;
-        const callout = document.createElement('div');
-        callout.className = 'callout';
-        callout.setAttribute('data-icon', '💡');
-        const icon = document.createElement('span');
-        icon.className = 'callout-icon';
-        icon.setAttribute('contenteditable', 'false');
-        icon.textContent = '💡';
-        icon.addEventListener('click', (e) => {
-            e.preventDefault();
-            const next = prompt('아이콘 입력 (이모지 하나):', callout.getAttribute('data-icon') || '💡');
-            if (next && next.length <= 4) {
-                callout.setAttribute('data-icon', next);
-                icon.textContent = next;
-                scheduleSave();
-            }
-        });
-        const content = document.createElement('div');
-        content.className = 'callout-content';
-        content.innerHTML = block.innerHTML || '<p><br></p>';
-        callout.appendChild(icon);
-        callout.appendChild(content);
-        block.replaceWith(callout);
-        // Caret into first child of content
-        const first = content.firstElementChild || content;
-        placeCaretAtStart(first);
-    }
+    // Callout moved to editor/callout.js
 
     // Block type definitions shared by slash menu, Cmd+Option+N, and block menu
     const NOTION_BLOCKS = [
