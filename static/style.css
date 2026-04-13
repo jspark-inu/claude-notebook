@@ -270,7 +270,18 @@ button:focus-visible,
     font-size: 14px;
     flex-shrink: 0;
     width: 18px;
+    height: 16px;
     text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+/* SVG file-type badges (PDF / Word / Excel / PowerPoint) inherit the
+   container size — emoji glyphs use the parent's font-size instead. */
+.tree-item .icon svg {
+    width: 16px;
+    height: 16px;
 }
 
 .tree-item .name {
@@ -491,6 +502,27 @@ button:focus-visible,
     font-size: 40px;
     line-height: 1;
     margin-bottom: 6px;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.finder-item-icon svg {
+    width: 40px;
+    height: 40px;
+}
+.fd-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-right: 6px;
+}
+.fd-icon svg {
+    width: 16px;
+    height: 16px;
 }
 .finder-item-name {
     font-size: 11px;
@@ -896,6 +928,21 @@ button:focus-visible,
     border-radius: inherit;
     pointer-events: none;  /* clicks fall through to the wrapper for resize */
 }
+/* Default cap: until the user actively resizes the wrapper (which sets
+   `style="width: …px"` via CSS resize:horizontal), constrain images to
+   200px tall so freshly-inserted screenshots don't dominate the page.
+   Once the user drags the corner, [style*="width"] matches and these
+   rules drop out, letting the explicit width win. */
+.notion-editor .img-wrap:not([style*="width"]),
+.markdown-body .img-wrap:not([style*="width"]) {
+    width: auto;
+}
+.notion-editor .img-wrap:not([style*="width"]) > img,
+.markdown-body .img-wrap:not([style*="width"]) > img {
+    width: auto;
+    max-height: 200px;
+    max-width: 100%;
+}
 .notion-editor .img-wrap:hover {
     outline: 2px solid var(--accent, #2383e2);
     outline-offset: 2px;
@@ -905,6 +952,98 @@ button:focus-visible,
 .image-viewer {
     text-align: center;
     padding: 12px 0;
+}
+
+/* PDF preview — uses the browser's native PDF viewer. */
+.pdf-frame {
+    width: 100%;
+    height: calc(100dvh - 80px);
+    border: 0;
+    background: #525659;
+}
+
+/* XLSX preview — multi-sheet read-only table. */
+.xlsx-viewer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.xlsx-tabs {
+    display: flex;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+    background: var(--sidebar-bg);
+    padding: 4px 8px 0;
+    gap: 2px;
+    flex-shrink: 0;
+}
+.xlsx-tab {
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.xlsx-tab:hover {
+    color: var(--text);
+    background: var(--bg);
+}
+.xlsx-tab.active {
+    color: var(--text);
+    background: var(--bg);
+    border-color: var(--border);
+    border-bottom-color: var(--bg);
+    margin-bottom: -1px;
+}
+.xlsx-sheet-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.xlsx-scroll {
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.xlsx-table {
+    width: max-content;
+    min-width: 100%;
+    font-size: 12px;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.xlsx-table th,
+.xlsx-table td {
+    border-right: 1px solid var(--border-light, rgba(0,0,0,0.06));
+    border-bottom: 1px solid var(--border-light, rgba(0,0,0,0.06));
+    padding: 4px 8px;
+    white-space: nowrap;
+    background: var(--bg);
+}
+.xlsx-table thead th {
+    background: var(--sidebar-bg);
+    font-weight: 700;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+.xlsx-table td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.xlsx-loading,
+.xlsx-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
 }
 
 .image-viewer img {

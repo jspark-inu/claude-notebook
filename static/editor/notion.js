@@ -1105,6 +1105,17 @@ function buildResizableImg(name, fileDir) {
     return wrap;
 }
 
+/** Tag every link inside the editor as `target=_blank` + `rel=noopener`
+ *  so right-click "Open in new tab" works and the actual click handler
+ *  in setupNotionEditor knows it's safe to call window.open(). */
+function rehydrateLinks(editor) {
+    if (!editor) return;
+    editor.querySelectorAll('a[href]').forEach((a) => {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+    });
+}
+
 /** Walk every <img> in the editor and (a) wrap any unwrapped ones in
  *  .img-wrap so the resize affordance is uniform, (b) restore the
  *  wrapper's width from a width attribute on the img if present (the
@@ -1685,10 +1696,13 @@ function openLinkInput() {
 
 // ==================== Block menu (Cmd+/, right-click) ====================
 let _blockMenuEl = null;
+let _blockMenuCleanup = null;
 
 function closeBlockMenu() {
     if (_blockMenuEl) _blockMenuEl.remove();
     _blockMenuEl = null;
+    if (_blockMenuCleanup) _blockMenuCleanup();
+    _blockMenuCleanup = null;
 }
 
 function openBlockMenu(editor, x, y, targetBlock) {
@@ -1725,32 +1739,45 @@ function openBlockMenu(editor, x, y, targetBlock) {
         el.style.top = Math.max(8, window.innerHeight - rect.height - 8) + 'px';
     }
 
-    // pointerdown unifies mouse + touch + pen. On iOS Safari < 13 it may be
-    // missing, but the menu is desktop-only anyway now (mobile contextmenu
-    // early-returns). Keeping the handler here so any other future entry
-    // point still gets a tap response immediately.
-    el.addEventListener('pointerdown', (e) => {
+    // Action handler: pointerdown for instant feedback, click as a safety
+    // net for environments where pointerdown is swallowed (some iOS Safari
+    // contenteditable hosts don't synthesize it on tap).
+    const onItem = (e) => {
         const item = e.target.closest('.bm-item');
         if (!item) return;
         e.preventDefault();
+        e.stopPropagation();
         performBlockAction(editor, targetBlock, item.dataset.act);
         closeBlockMenu();
-    });
+    };
+    el.addEventListener('pointerdown', onItem);
+    el.addEventListener('click', onItem);
 
-    // Outside-dismiss: use pointerdown (mouse/touch/pen) AND touchstart as a
-    // belt-and-suspenders fallback so the menu never gets stuck — the old
-    // code only listened for `mousedown`, which iOS/Android do not reliably
-    // synthesize from touches, causing the menu to live forever.
+    // Outside-dismiss. Multiple event types so the menu never gets stuck:
+    //   pointerdown — mouse/touch/pen, fires earliest
+    //   mousedown   — desktop fallback
+    //   touchstart  — older iOS Safari
+    //   click       — final safety net (e.g. clicks dispatched by other UI
+    //                 widgets like the selection toolbar that may swallow
+    //                 the lower-level events)
     const outside = (e) => {
-        if (!el.contains(e.target)) {
-            closeBlockMenu();
-            document.removeEventListener('pointerdown', outside, true);
-            document.removeEventListener('touchstart', outside, true);
-        }
+        if (!_blockMenuEl) return;
+        if (_blockMenuEl.contains(e.target)) return;
+        closeBlockMenu();
+    };
+    _blockMenuCleanup = () => {
+        document.removeEventListener('pointerdown', outside, true);
+        document.removeEventListener('mousedown', outside, true);
+        document.removeEventListener('touchstart', outside, true);
+        document.removeEventListener('click', outside, true);
+        document.removeEventListener('contextmenu', outside, true);
     };
     setTimeout(() => {
         document.addEventListener('pointerdown', outside, true);
+        document.addEventListener('mousedown', outside, true);
         document.addEventListener('touchstart', outside, true);
+        document.addEventListener('click', outside, true);
+        document.addEventListener('contextmenu', outside, true);
     }, 0);
 }
 
@@ -1790,8 +1817,31 @@ function setupNotionEditor(editor) {
         previewViewToggle.title = 'Switch to plain text view';
     }
     rehydrateImageResize(editor);
+    rehydrateLinks(editor);
     editor.setAttribute('contenteditable', 'true');
     editor.setAttribute('spellcheck', 'false');
+
+    // Click on any link inside the editor opens it in a new tab. Without
+    // this, contenteditable swallows the click into a caret placement and
+    // the link is unclickable from inside the editor.
+    editor.addEventListener('click', (e) => {
+        const a = e.target.closest('a[href]');
+        if (!a || !editor.contains(a)) return;
+        const href = a.getAttribute('href') || '';
+        // In-page anchor (TOC) — let the browser jump natively, the TOC
+        // module's own click handler already calls scrollIntoView.
+        if (href.startsWith('#')) return;
+        e.preventDefault();
+        // For workspace file references (added by rewriteRelativeMediaUrls),
+        // open the in-app preview route — `${BASE}/files#${path}` — so the
+        // target file lands in our overlay instead of streaming the raw
+        // bytes. External URLs keep their original href.
+        const wsPath = a.getAttribute('data-workspace-path');
+        const target = wsPath
+            ? `${BASE}/files#${encodeURIComponent(wsPath)}`
+            : href;
+        window.open(target, '_blank', 'noopener,noreferrer');
+    });
 
     let _isComposing = false;
     editor.addEventListener('compositionstart', () => { _isComposing = true; });

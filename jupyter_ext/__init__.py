@@ -264,6 +264,9 @@ MEDIA_CONTENT_TYPES = {
     # Video
     '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm',
     '.ogv': 'video/ogg', '.mov': 'video/quicktime',
+    # Documents — PDFs render in the browser's native viewer when served
+    # with this Content-Type via raw=1.
+    '.pdf': 'application/pdf',
 }
 
 
@@ -527,6 +530,59 @@ class WorkspaceFileHandler(BaseHandler):
                 self.write(chunk)
                 await self.flush()
         self.finish()
+
+
+class WorkspaceXlsxHandler(BaseHandler):
+    """Read an .xlsx (or .xls) and return every sheet as JSON rows.
+
+    The client renders this with the same CSV-style table the .csv viewer
+    uses, plus a tab strip for sheet selection. Read-only and best-effort:
+    formulas are evaluated to their cached value via data_only=True; styles
+    and merges are dropped (we just want the values for preview).
+    """
+
+    @web.authenticated
+    def get(self):
+        file_path = self.get_argument("path", None)
+        full_path = self.validate_path(file_path)
+        if not full_path.is_file():
+            raise web.HTTPError(404, "Not found: %s" % file_path)
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            raise web.HTTPError(
+                501,
+                "openpyxl not installed on the server (pip install openpyxl)",
+            )
+        try:
+            wb = load_workbook(full_path, read_only=True, data_only=True)
+        except Exception as e:
+            raise web.HTTPError(500, "Failed to read xlsx: %s" % e)
+
+        sheets = []
+        try:
+            for name in wb.sheetnames:
+                ws = wb[name]
+                rows = []
+                for row in ws.iter_rows(values_only=True):
+                    rows.append([
+                        "" if v is None else
+                        (v.isoformat() if hasattr(v, "isoformat") else str(v))
+                        for v in row
+                    ])
+                # Trim trailing all-empty rows so the preview isn't pages of blanks
+                while rows and all(c == "" for c in rows[-1]):
+                    rows.pop()
+                sheets.append({"name": name, "rows": rows})
+        finally:
+            wb.close()
+
+        self.json_response({
+            "path": file_path,
+            "name": full_path.name,
+            "extension": full_path.suffix.lower(),
+            "sheets": sheets,
+        })
 
 
 class WorkspaceUploadHandler(BaseHandler):
@@ -1037,6 +1093,7 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/static/(.+)"), WorkspaceStaticHandler),
         (ujoin(base_url, r"/claude-notebook/api/tree"), WorkspaceTreeHandler),
         (ujoin(base_url, r"/claude-notebook/api/file"), WorkspaceFileHandler),
+        (ujoin(base_url, r"/claude-notebook/api/xlsx"), WorkspaceXlsxHandler),
         (ujoin(base_url, r"/claude-notebook/api/upload"), WorkspaceUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/upload-chunk"), ChunkedUploadHandler),
         (ujoin(base_url, r"/claude-notebook/api/save"), WorkspaceSaveHandler),

@@ -49,6 +49,11 @@ import {
     renderTimetable,
     renderDatetable,
 } from './views/calendar.js';
+import { XLSX_EXTS, renderXlsxViewer } from './views/xlsx.js';
+
+// Browser-rendered binary previews — handled directly in loadPreviewContent
+// before the JSON /api/file roundtrip (server returns bytes for these).
+const PDF_EXTS = ['.pdf'];
 
 // Still used by getCurrentContent dispatcher
 import { hasCsvRows, csvTableToString } from './views/csv.js';
@@ -393,6 +398,20 @@ const contentEl = document.getElementById('content');
                 const blob = await imgRes.blob();
                 const objectUrl = URL.createObjectURL(blob);
                 previewBody.innerHTML = `<div class="image-viewer"><img src="${objectUrl}" alt="${escHtml(parts[parts.length - 1])}"></div>`;
+                return;
+            }
+
+            if (PDF_EXTS.includes(ext)) {
+                // Native browser PDF viewer (works on iOS Safari + desktop).
+                // raw=1 makes the server stream with Content-Type: application/pdf.
+                const pdfUrl = `${BASE}/api/file?path=${encodeURIComponent(path)}&raw=1`;
+                previewBody.innerHTML =
+                    `<iframe class="pdf-frame" src="${pdfUrl}" title="${escHtml(parts[parts.length - 1])}"></iframe>`;
+                return;
+            }
+
+            if (XLSX_EXTS.includes(ext)) {
+                await renderXlsxViewer(path);
                 return;
             }
 

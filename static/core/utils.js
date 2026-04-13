@@ -18,11 +18,72 @@ export function escHtml(text) {
 
 // ---------- File-type metadata ----------
 
+// File-type icons. Two flavours:
+//   - emoji string for media / generic file types
+//   - inline SVG string for office documents so PDF / Word / Excel /
+//     PowerPoint look like their actual brand glyphs (color + letter)
+//     instead of indistinguishable books.
+// Both flavours render via `<span>${icon}</span>` (innerHTML), so the
+// tree/finder code doesn't need to know the difference.
+
+const officeBadge = (bg, label, fontSize = 8) => (
+    `<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"` +
+    ` style="display:block;border-radius:3px;">` +
+    `<rect width="24" height="24" rx="3" fill="${bg}"/>` +
+    `<text x="12" y="${12 + fontSize / 2.5}" text-anchor="middle" fill="#fff"` +
+    ` font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif"` +
+    ` font-size="${fontSize}" font-weight="800" letter-spacing="-0.3">${label}</text>` +
+    `</svg>`
+);
+
+// Brand colors (official-ish):
+//   PDF   = #D93025 (Adobe red)
+//   Word  = #185ABD (MS blue)
+//   Excel = #107C41 (MS green)
+//   PPT   = #C43E1C (MS orange-red)
+const ICON_PDF   = officeBadge('#D93025', 'PDF', 7);
+const ICON_WORD  = officeBadge('#185ABD', 'W',  12);
+const ICON_EXCEL = officeBadge('#107C41', 'X',  12);
+const ICON_PPT   = officeBadge('#C43E1C', 'P',  12);
+
 export const FILE_ICONS = {
-    md: '📄', markdown: '📄', py: '🐍', js: '⚙️', json: '📋', yaml: '📋', yml: '📋',
-    html: '🌐', css: '🎨', txt: '📄', sh: '⚙️', png: '🖼️', jpg: '🖼️', jpeg: '🖼️',
-    gif: '🖼️', webp: '🖼️', svg: '🖼️', bmp: '🖼️', ico: '🖼️', pdf: '📕',
-    zip: '📦', tar: '📦', gz: '📦',
+    // Text / markup
+    md: '📄', markdown: '📄', txt: '📄', log: '📜',
+    // Code
+    py: '🐍', js: '⚙️', ts: '⚙️', jsx: '⚙️', tsx: '⚙️',
+    sh: '⚙️', bash: '⚙️', zsh: '⚙️', fish: '⚙️',
+    rb: '⚙️', go: '⚙️', rs: '⚙️', java: '⚙️', kt: '⚙️',
+    c: '⚙️', cpp: '⚙️', h: '⚙️', hpp: '⚙️',
+    php: '⚙️', swift: '⚙️',
+    // Data / config
+    json: '📋', yaml: '📋', yml: '📋', toml: '📋',
+    cfg: '📋', ini: '📋', xml: '📋', env: '📋',
+    csv: '📊', tsv: '📊',
+    // Web
+    html: '🌐', htm: '🌐', css: '🎨', scss: '🎨', sass: '🎨',
+    // Office documents — branded SVG badges instead of color-coded books
+    pdf:  ICON_PDF,
+    docx: ICON_WORD,  doc: ICON_WORD,  odt: ICON_WORD,  rtf: ICON_WORD,
+    xlsx: ICON_EXCEL, xls: ICON_EXCEL, ods: ICON_EXCEL,
+    pptx: ICON_PPT,   ppt: ICON_PPT,   odp: ICON_PPT,   key: ICON_PPT,
+    // Notebooks
+    ipynb: '📓',
+    // Custom file types this app understands
+    timetable: '📅', datetable: '📅',
+    // Images
+    png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', webp: '🖼️',
+    svg: '🖼️', bmp: '🖼️', ico: '🖼️', tiff: '🖼️', tif: '🖼️', heic: '🖼️',
+    // Video
+    mp4: '🎬', m4v: '🎬', mov: '🎬', webm: '🎬', mkv: '🎬',
+    avi: '🎬', wmv: '🎬', flv: '🎬', ogv: '🎬',
+    // Audio
+    mp3: '🎵', wav: '🎵', m4a: '🎵', aac: '🎵', flac: '🎵',
+    ogg: '🎵', oga: '🎵', opus: '🎵',
+    // Archives
+    zip: '📦', tar: '📦', gz: '📦', tgz: '📦',
+    bz2: '📦', xz: '📦', '7z': '📦', rar: '📦',
+    // Fonts
+    ttf: '🔤', otf: '🔤', woff: '🔤', woff2: '🔤', eot: '🔤',
 };
 
 export const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp'];
