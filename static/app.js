@@ -52,6 +52,16 @@ import {
     domToMarkdown,
     sanitizePastedHtml,
 } from './editor/markdown.js';
+import {
+    initAutoSave,
+    setSaveStatus,
+    scheduleSave,
+    flushSave,
+    cancelPendingSave,
+    resetAutoSave,
+    getSavedBaseline,
+    setSavedBaseline,
+} from './editor/auto-save.js';
 
 const contentEl = document.getElementById('content');
     const finder = document.getElementById('finder');
@@ -80,11 +90,6 @@ const contentEl = document.getElementById('content');
     let currentPreviewPath = '';
     let isInlineEditing = false;           // true when md/txt/code textarea is shown
     let currentFileData = null;            // { path, content, extension }
-    // Auto-save state machine
-    const AUTO_SAVE_DEBOUNCE_MS = 1500;
-    let saveTimer = null;                  // pending debounced save
-    let lastSavedContent = null;           // last content confirmed on disk
-    let saveInFlight = false;              // a PUT is currently running
     // History modal state
     let currentSnapshots = [];
     let selectedSnapshotTs = null;
@@ -762,8 +767,7 @@ const contentEl = document.getElementById('content');
         currentPreviewPath = path;
         isInlineEditing = false;
         currentFileData = null;
-        lastSavedContent = null;
-        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+        resetAutoSave();
         setSaveStatus('idle');
         previewOverlay.classList.add('active');
         finder.style.display = 'none';
@@ -793,7 +797,7 @@ const contentEl = document.getElementById('content');
         currentPreviewPath = '';
         isInlineEditing = false;
         currentFileData = null;
-        lastSavedContent = null;
+        resetAutoSave();
         previewHistory.style.display = 'none';
         previewHelp.style.display = 'none';
         if (previewViewToggle) {
@@ -823,11 +827,6 @@ const contentEl = document.getElementById('content');
     //     on every mutation through the same pipeline.
     //   - Status pill in the toolbar shows idle / dirty / saving / saved / error.
 
-    function setSaveStatus(state) {
-        if (!previewStatus) return;
-        previewStatus.dataset.state = state;
-    }
-
     /** Collect the latest content from whichever editor is currently active. */
     function getCurrentContent() {
         if (!currentFileData) return null;
@@ -854,49 +853,12 @@ const contentEl = document.getElementById('content');
         return null;
     }
 
-    /** Schedule a debounced save. Called on every user mutation. */
-    function scheduleSave() {
-        if (!currentFileData) return;
-        if (saveTimer) clearTimeout(saveTimer);
-        setSaveStatus('dirty');
-        saveTimer = setTimeout(() => { saveTimer = null; flushSave(); }, AUTO_SAVE_DEBOUNCE_MS);
-    }
-
-    /** Write current content to disk immediately, bypassing the debounce. */
-    async function flushSave({ silent = false } = {}) {
-        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-        if (!currentFileData) return;
-        const content = getCurrentContent();
-        if (content == null) return;
-        if (content === lastSavedContent) {
-            if (!silent) setSaveStatus('saved');
-            return;
-        }
-        if (saveInFlight) {
-            // Another save is running; re-schedule a short retry so the
-            // latest content always gets written.
-            saveTimer = setTimeout(() => { saveTimer = null; flushSave({ silent }); }, 200);
-            return;
-        }
-        saveInFlight = true;
-        if (!silent) setSaveStatus('saving');
-        try {
-            const res = await fetch(`${BASE}/api/save`, mutFetchOpts({
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: currentFileData.path, content }),
-            }));
-            if (!res.ok) throw new Error(await res.text());
-            lastSavedContent = content;
-            currentFileData.content = content;
-            if (!silent) setSaveStatus('saved');
-        } catch (err) {
-            console.warn('Auto-save failed:', err);
-            if (!silent) setSaveStatus('error');
-        } finally {
-            saveInFlight = false;
-        }
-    }
+    initAutoSave({
+        statusEl: previewStatus,
+        getContent: getCurrentContent,
+        getPath: () => currentFileData ? currentFileData.path : null,
+        onSaved: (content) => { if (currentFileData) currentFileData.content = content; },
+    });
 
     /** Swap the rendered preview for an inline textarea (md / txt / code). */
     function enterInlineEdit(clickY) {
@@ -951,9 +913,10 @@ const contentEl = document.getElementById('content');
             // Escape reverts to last-saved content and re-renders preview
             if (e.key === 'Escape') {
                 e.preventDefault();
-                ta.value = lastSavedContent != null ? lastSavedContent : (currentFileData.content || '');
+                const baseline = getSavedBaseline();
+                ta.value = baseline != null ? baseline : (currentFileData.content || '');
                 isInlineEditing = false;
-                if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+                cancelPendingSave();
                 setSaveStatus('saved');
                 renderPreviewMode(currentFileData);
             }
@@ -972,10 +935,10 @@ const contentEl = document.getElementById('content');
     // Flush save if the tab is closed / navigated away. fetch(keepalive:true)
     // lets the request finish even after the page unloads.
     window.addEventListener('beforeunload', () => {
-        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+        cancelPendingSave();
         if (!currentFileData) return;
         const content = getCurrentContent();
-        if (content == null || content === lastSavedContent) return;
+        if (content == null || content === getSavedBaseline()) return;
         try {
             fetch(`${BASE}/api/save`, {
                 method: 'PUT',
@@ -2628,9 +2591,9 @@ const contentEl = document.getElementById('content');
             setupNotionEditor(editor);
             rehydrateMathBlocks(editor);
             rehydrateTOCBlocks(editor);
-            // Re-baseline lastSavedContent against the round-tripped form so a no-op
+            // Re-baseline the saved content against the round-tripped form so a no-op
             // toggle doesn't dirty the file.
-            lastSavedContent = domToMarkdown(editor);
+            setSavedBaseline(domToMarkdown(editor));
             _mdViewMode = 'rendered';
             if (previewViewToggle) {
                 previewViewToggle.textContent = 'Text';
@@ -3492,7 +3455,7 @@ const contentEl = document.getElementById('content');
             _mdViewMode = 'rendered';
             // Use the serialized form as baseline so no-op opens don't dirty
             // the file just because the round-trip isn't byte-identical.
-            lastSavedContent = domToMarkdown(editor);
+            setSavedBaseline(domToMarkdown(editor));
         } else if (EDITABLE_EXTS.includes(data.extension)) {
             previewBody.innerHTML = `<pre class="file-raw editable-hint">${escHtml(data.content)}</pre>`;
             attachClickToEdit(previewBody.querySelector('.file-raw'));
@@ -3604,7 +3567,7 @@ const contentEl = document.getElementById('content');
             }));
             if (!res.ok) throw new Error(await res.text());
             currentFileData.content = selectedSnapshotContent;
-            lastSavedContent = selectedSnapshotContent;
+            setSavedBaseline(selectedSnapshotContent);
             setSaveStatus('saved');
             closeHistoryModal();
             // Re-render the preview with the restored content
@@ -3649,7 +3612,7 @@ const contentEl = document.getElementById('content');
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             currentFileData = data;
-            lastSavedContent = data.content;
+            setSavedBaseline(data.content);
 
             // File too large for inline preview — offer download
             if (data.too_large) {
