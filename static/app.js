@@ -10,7 +10,7 @@
  *   - handles the URL-hash back/forward integration
  */
 
-import { BASE, XSRF } from './core/api.js';
+import { BASE, XSRF, fetchOpts } from './core/api.js';
 import { escHtml, rewriteRelativeMediaUrls, formatSize } from './core/utils.js';
 import { initSidebar } from './ui/sidebar.js';
 import { initTree, loadTree } from './ui/tree.js';
