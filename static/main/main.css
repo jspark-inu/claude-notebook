@@ -100,17 +100,38 @@
   border-radius: 3px;
   font-size: 13px;
 }
-.tab-close:hover { background: var(--border, #e5e5e3); color: var(--text, #1f1f1e); }
+.tab-close:hover { background: var(--border); color: var(--text); }
+
+.tab-add {
+  width: 28px;
+  height: 28px;
+  margin: 3px 0 3px 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.tab-add:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+
 .leaf-close {
   margin-left: auto;
   margin-right: 6px;
-  border: 0;
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
-  color: var(--text-secondary, #6b6b66);
+  color: var(--text-secondary);
   font-size: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
 }
-.leaf-close:hover { color: var(--danger, #c33); }
+.leaf-close:hover { background: rgba(220, 53, 69, 0.1); color: #dc3545; border-color: #dc3545; }
 
 .leaf-body {
   flex: 1;

@@ -158,6 +158,15 @@ function render() {
       tEl.addEventListener('click', e => {
         if (e.target.classList.contains('tab-close')) {
           tabStore.closeTab(t.id);
+          // 이 leaf 가 비었으면 자동으로 leaf 도 닫기 (단, 마지막 leaf 는 유지)
+          if (tabStore.tabsForLeaf(leaf.id).length === 0 && state.leaves.length > 1) {
+            removeLeaf(leaf.id);
+          } else if (leaf.activeTabId === t.id) {
+            // 다른 탭으로 활성화 이동
+            const remaining = tabStore.tabsForLeaf(leaf.id);
+            leaf.activeTabId = remaining.length ? remaining[0].id : null;
+            fire();
+          }
         } else {
           leaf.activeTabId = t.id;
           activateLeaf(leaf.id);
@@ -165,6 +174,31 @@ function render() {
       });
       bar.appendChild(tEl);
     }
+    // 패널마다 + 버튼 — 클릭 시 이 leaf 에 새 터미널 탭 추가
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'tab-add';
+    addBtn.textContent = '+';
+    addBtn.title = '이 패널에 새 터미널 추가';
+    addBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      try {
+        const r = await fetch(`${window.__VIEWER_BASE || ''}/api/terminals/new`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-XSRFToken': window.__XSRF_TOKEN || '' },
+          body: JSON.stringify({ host_id: window.__currentHostId || 'local' }),
+        });
+        if (!r.ok) { console.error('new terminal failed', r.status); return; }
+        const { name } = await r.json();
+        const tabId = tabStore.openTab({ kind: 'term', contentRef: name, leafId: leaf.id });
+        leaf.activeTabId = tabId;
+        state.activeLeafId = leaf.id;
+        fire();
+      } catch (err) { console.error(err); }
+    });
+    bar.appendChild(addBtn);
+
     if (state.leaves.length > 1) {
       const closeLeaf = document.createElement('button');
       closeLeaf.type = 'button';
@@ -177,13 +211,19 @@ function render() {
 
     const body = sec.querySelector('.leaf-body');
     const activeTab = tabStore.tabsForLeaf(leaf.id).find(t => t.id === leaf.activeTabId);
-    if (activeTab) {
-      sec.dispatchEvent(new CustomEvent('mount-tab', {
-        detail: { tab: activeTab, hostEl: body },
-        bubbles: true,
-      }));
-    } else {
-      body.innerHTML = '<div class="leaf-empty" style="padding:40px;text-align:center;color:var(--text-secondary,#888);font-style:italic">사이드바에서 터미널이나 파일을 선택하세요</div>';
+    const newTabId = activeTab ? activeTab.id : null;
+    // Idempotency: 활성 탭이 바뀌었을 때만 mount-tab dispatch (xterm/file 깜빡임 방지)
+    if (sec._lastTabId !== newTabId) {
+      sec._lastTabId = newTabId;
+      if (activeTab) {
+        body.innerHTML = '';
+        sec.dispatchEvent(new CustomEvent('mount-tab', {
+          detail: { tab: activeTab, hostEl: body, leafId: leaf.id },
+          bubbles: true,
+        }));
+      } else {
+        body.innerHTML = '<div class="leaf-empty" style="padding:40px;text-align:center;color:var(--text-secondary,#888);font-style:italic">사이드바에서 터미널이나 파일을 선택하세요</div>';
+      }
     }
     mountEl.appendChild(sec);
 
