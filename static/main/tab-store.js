@@ -6,10 +6,10 @@ export function onChange(fn) { subs.push(fn); }
 function fire() { for (const fn of subs) fn(); }
 
 export function openTab({ kind, contentRef, leafId }) {
-  // 같은 contentRef + 같은 leaf 면 기존 탭 활성화
+  // 같은 kind+contentRef 가 이미 어느 leaf 에든 열려있으면 거기서 활성화 (이동 X)
+  // — 사용자가 사이드바 터미널 클릭 시 split 구조가 망가지지 않게.
   for (const t of tabs.values()) {
     if (t.kind === kind && t.contentRef === contentRef) {
-      t.leafId = leafId;
       fire();
       return t.id;
     }
