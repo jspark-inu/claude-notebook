@@ -157,10 +157,14 @@ if (hash) {
   layout.activateTab(tabId);
 }
 
-// 기본 — 첫 진입 시 Files 탭 자동 오픈 (Notion 식 + 폴더 그리드 + 토글 등 풀세트)
+// Files 탭 카운터
+let filesCount = 0;
+
+// 기본 — 첫 진입 시 Files 탭 자동 오픈
 if (!hash) {
+  filesCount = 1;
   const leafId = layout.getActiveLeafId();
-  const tabId = tabStore.openTab({ kind: 'files', contentRef: 'Files', leafId });
+  const tabId = tabStore.openTab({ kind: 'files', contentRef: 'Files 1', leafId });
   layout.activateTab(tabId);
 }
 
@@ -189,12 +193,13 @@ if (splitBtn) {
   });
 }
 
-// Files button — 활성 leaf 에 Files 탭 열기 (이미 있으면 활성화)
+// Files button — 활성 leaf 에 새 Files 탭 (매 클릭마다 새 탭)
 const filesBtn = document.getElementById('files-btn');
 if (filesBtn) {
   filesBtn.addEventListener('click', () => {
+    filesCount++;
     const leafId = layout.getActiveLeafId();
-    const tabId = tabStore.openTab({ kind: 'files', contentRef: 'Files', leafId });
+    const tabId = tabStore.openTab({ kind: 'files', contentRef: `Files ${filesCount}`, leafId });
     layout.activateTab(tabId);
   });
 }
