@@ -4,3 +4,4 @@ __pycache__/
 .terminal_names.json
 config/
 .agent/
+.venv/

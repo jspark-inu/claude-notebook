@@ -1210,6 +1210,7 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/api/hosts/([^/]+)"),         _host_h["HostItemHandler"]),
         (ujoin(base_url, r"/claude-notebook/api/hosts/([^/]+)/test"),    _host_h["HostTestHandler"]),
         (ujoin(base_url, r"/claude-notebook/api/current_host"),          _host_h["CurrentHostHandler"]),
+        (ujoin(base_url, r"/claude-notebook/api/ssh-config"),            _host_h["SshConfigHandler"]),
     ])
     from .terminals import make_handlers as _make_term_handlers, sync_term_hosts as _sync_term_hosts
     _term_h = _make_term_handlers(BaseHandler)

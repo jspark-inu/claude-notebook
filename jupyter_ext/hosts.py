@@ -1,11 +1,45 @@
 """SSH host registry + REST handlers (Spec 1 §5.2)."""
 from __future__ import annotations
-import json, re, subprocess
+import json, os, re, subprocess
 from pathlib import Path
 
 from tornado import web
 
 from .jsonio import write_json_atomic
+
+
+def parse_ssh_config():
+    """~/.ssh/config 파싱 — Host 별 alias + HostName + User + Port 추출."""
+    cfg_path = Path(os.path.expanduser("~/.ssh/config"))
+    if not cfg_path.is_file():
+        return []
+    hosts = []
+    current = None
+    try:
+        for raw in cfg_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) < 2:
+                continue
+            key, val = parts[0].lower(), parts[1].strip()
+            if key == "host":
+                # 와일드카드 alias 는 skip — 실제 호스트만
+                if "*" in val or "?" in val:
+                    current = None
+                    continue
+                # space-separated 여러 alias 가능 — 첫 번째만
+                alias = val.split()[0]
+                current = {"alias": alias, "hostname": alias, "user": None, "port": None}
+                hosts.append(current)
+            elif current is not None:
+                if key == "hostname": current["hostname"] = val
+                elif key == "user":   current["user"] = val
+                elif key == "port":   current["port"] = val
+    except Exception:
+        return []
+    return hosts
 
 CONFIG_DIR = Path(__file__).parent.parent / "config"
 HOSTS_FILE = CONFIG_DIR / "hosts.json"
@@ -148,9 +182,15 @@ def make_handlers(BaseHandler):
             save_hosts(data)
             self.json_response({"current_id": host_id})
 
+    class SshConfigHandler(BaseHandler):
+        @web.authenticated
+        def get(self):
+            self.json_response({"hosts": parse_ssh_config()})
+
     return {
         "HostsListHandler":   HostsListHandler,
         "HostItemHandler":    HostItemHandler,
         "HostTestHandler":    HostTestHandler,
         "CurrentHostHandler": CurrentHostHandler,
+        "SshConfigHandler":   SshConfigHandler,
     }

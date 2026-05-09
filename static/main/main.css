@@ -35,6 +35,21 @@
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   overflow: hidden;
+  transition: width 0.2s ease;
+}
+#sidebar.collapsed { width: 0 !important; border-right: 0; }
+#sidebar.collapsed + #divider { display: none; }
+
+/* Divider — drag to resize sidebar */
+#divider {
+  flex: 0 0 4px;
+  background: var(--border);
+  cursor: col-resize;
+  user-select: none;
+}
+#divider:hover, #divider.active { background: var(--accent); }
+@media (max-width: 720px) {
+  #divider { display: none; }
 }
 #main {
   flex: 1;
