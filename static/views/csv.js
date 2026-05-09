@@ -16,8 +16,13 @@ import { scheduleSave } from '../editor/auto-save.js';
 
 export const CSV_EXTS = ['.csv'];
 
-const previewBody = document.getElementById('previewBody');
-const previewColorRules = document.getElementById('previewColorRules');
+function getDOM(hostEl) {
+    const root = hostEl || document.getElementById('previewBody');
+    const rules = hostEl
+        ? hostEl.querySelector('.preview-color-rules') || null
+        : document.getElementById('previewColorRules');
+    return { root, rules };
+}
 
 let getFilePath = () => '';
 
@@ -226,7 +231,8 @@ function showColorRulesModal(filePath, headers, colorRules, onSave) {
 
 // ---------- Viewer (read-only with sort, filter, color) ----------
 
-export function renderCsvViewer(content) {
+export function renderCsvViewer(content, hostEl = null) {
+    const { root: previewBody, rules: previewColorRules } = getDOM(hostEl);
     const rows = parseCsv(content);
     if (rows.length === 0) {
         previewBody.innerHTML = '<p style="padding:20px;color:var(--text-secondary);">Empty CSV</p>';
@@ -251,13 +257,15 @@ export function renderCsvViewer(content) {
     let colorRules = loadCsvColorRules(filePath) || [];
     const checkboxCols = loadCsvCheckboxCols(filePath) || [];
 
-    previewColorRules.onclick = () => {
-        showColorRulesModal(filePath, headers, colorRules, (newRules) => {
-            colorRules = newRules;
-            saveCsvColorRules(filePath, colorRules);
-            render();
-        });
-    };
+    if (previewColorRules) {
+        previewColorRules.onclick = () => {
+            showColorRulesModal(filePath, headers, colorRules, (newRules) => {
+                colorRules = newRules;
+                saveCsvColorRules(filePath, colorRules);
+                render();
+            });
+        };
+    }
 
     function render() {
         let filtered = dataRows.map((row, i) => ({ row, origIdx: i })).filter(({ row }) =>
@@ -373,7 +381,7 @@ export function renderCsvViewer(content) {
         previewBody.querySelectorAll('.csv-cell-text').forEach(span => {
             span.addEventListener('click', (e) => {
                 e.stopPropagation();
-                renderCsvEditor(csvStringify(csvEditRows));
+                renderCsvEditor(csvStringify(csvEditRows), hostEl);
             });
         });
         previewBody.querySelectorAll('.csv-viewer-cb').forEach(cb => {
@@ -395,7 +403,7 @@ export function renderCsvViewer(content) {
 let csvEditRows = [];
 let csvContextEl = null;
 
-function showCsvContextMenu(x, y, rowIdx, colIdx) {
+function showCsvContextMenu(x, y, rowIdx, colIdx, hostEl = null) {
     hideCsvContextMenu();
     csvContextEl = document.createElement('div');
     csvContextEl.className = 'finder-context';
@@ -406,7 +414,7 @@ function showCsvContextMenu(x, y, rowIdx, colIdx) {
         actions.push({ label: 'Delete Row', cls: 'danger', action: () => {
             csvEditRows.splice(rowIdx, 1);
             scheduleSave();
-            renderCsvEditTable();
+            renderCsvEditTable(hostEl);
         }});
     }
     if (csvEditRows[0].length > 1) {
@@ -419,7 +427,7 @@ function showCsvContextMenu(x, y, rowIdx, colIdx) {
                 saveCsvCheckboxCols(filePath, cbCols);
             }
             scheduleSave();
-            renderCsvEditTable();
+            renderCsvEditTable(hostEl);
         }});
     }
     actions.forEach(({ label, cls, action }) => {
@@ -439,13 +447,14 @@ function hideCsvContextMenu() {
     if (csvContextEl) { csvContextEl.remove(); csvContextEl = null; }
 }
 
-export function renderCsvEditor(content) {
+export function renderCsvEditor(content, hostEl = null) {
     csvEditRows = parseCsv(content);
     if (csvEditRows.length === 0) csvEditRows = [['']];
-    renderCsvEditTable();
+    renderCsvEditTable(hostEl);
 }
 
-function renderCsvEditTable() {
+function renderCsvEditTable(hostEl = null) {
+    const { root: previewBody } = getDOM(hostEl);
     const oldScroll = previewBody.querySelector('.csv-edit-scroll');
     const scrollTop = oldScroll ? oldScroll.scrollTop : 0;
     const scrollLeft = oldScroll ? oldScroll.scrollLeft : 0;
@@ -525,17 +534,17 @@ function renderCsvEditTable() {
     document.getElementById('csvAddRow').addEventListener('click', () => {
         csvEditRows.push(new Array(csvEditRows[0].length).fill(''));
         scheduleSave();
-        renderCsvEditTable();
+        renderCsvEditTable(hostEl);
     });
     document.getElementById('csvAddCol').addEventListener('click', () => {
         csvEditRows.forEach(r => r.push(''));
         scheduleSave();
-        renderCsvEditTable();
+        renderCsvEditTable(hostEl);
     });
     previewBody.querySelectorAll('.csv-cell').forEach(td => {
         td.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            showCsvContextMenu(e.clientX, e.clientY, parseInt(td.dataset.row), parseInt(td.dataset.col));
+            showCsvContextMenu(e.clientX, e.clientY, parseInt(td.dataset.row), parseInt(td.dataset.col), hostEl);
         });
     });
     previewBody.querySelectorAll('.csv-cb-toggle').forEach(btn => {
@@ -562,7 +571,7 @@ function renderCsvEditTable() {
             }
             saveCsvCheckboxCols(filePath, checkboxCols);
             scheduleSave();
-            renderCsvEditTable();
+            renderCsvEditTable(hostEl);
         });
     });
     previewBody.querySelectorAll('.csv-checkbox').forEach(cb => {
@@ -609,7 +618,7 @@ function renderCsvEditTable() {
                     const [moved] = csvEditRows.splice(fromIdx, 1);
                     csvEditRows.splice(toIdx, 0, moved);
                     scheduleSave();
-                    renderCsvEditTable();
+                    renderCsvEditTable(hostEl);
                 }
             };
             document.addEventListener('mousemove', onMove);
@@ -661,7 +670,7 @@ function renderCsvEditTable() {
                         r.splice(toIdx, 0, moved);
                     });
                     scheduleSave();
-                    renderCsvEditTable();
+                    renderCsvEditTable(hostEl);
                 }
             };
             document.addEventListener('mousemove', onMove);
@@ -697,7 +706,8 @@ function renderCsvEditTable() {
 
 /** Serialize the current editor state for auto-save. Also called from
  *  the viewer path where csvEditRows mirrors the rendered data. */
-export function csvTableToString() {
+export function csvTableToString(hostEl = null) {
+    const { root: previewBody } = getDOM(hostEl);
     previewBody.querySelectorAll('.csv-cell[contenteditable]').forEach(td => {
         csvEditRows[parseInt(td.dataset.row)][parseInt(td.dataset.col)] = td.textContent;
     });

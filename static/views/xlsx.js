@@ -13,9 +13,8 @@ import { escHtml } from '../core/utils.js';
 
 export const XLSX_EXTS = ['.xlsx', '.xls'];
 
-const previewBody = document.getElementById('previewBody');
-
-export async function renderXlsxViewer(filePath) {
+export async function renderXlsxViewer(filePath, hostEl = null) {
+    const previewBody = hostEl || document.getElementById('previewBody');
     previewBody.innerHTML = '<div class="xlsx-loading">Loading…</div>';
     let data;
     try {
