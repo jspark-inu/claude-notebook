@@ -387,17 +387,21 @@ class ConfigHandler(BaseHandler):
 class WorkspaceViewerHandler(BaseHandler):
     @web.authenticated
     def get(self):
-        base_url = self.settings.get("base_url", "/")
-        viewer_base = ujoin(base_url, "claude-notebook")
-        html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
-        html = html.replace('href="/style.css"', f'href="{viewer_base}/static/style.css"')
-        html = html.replace('src="/keyboard-guard.js"', f'src="{viewer_base}/static/keyboard-guard.js"')
-        html = html.replace('src="/app.js"', f'src="{viewer_base}/static/app.js"')
+        base_url = self.settings.get("base_url", "/").rstrip("/")
+        viewer_base = base_url + "/claude-notebook"
         xsrf = self.get_xsrf_string()
+
+        focus = self.get_argument("focus", None)
+        if focus is None and "/files" in self.request.path:
+            focus = "files"
+
+        html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
         html = self.inject_script(
             html,
             __VIEWER_BASE=viewer_base,
+            __JUPYTER_BASE=base_url,
             __XSRF_TOKEN=xsrf,
+            __FOCUS=focus or "",
         )
         self.set_header("Content-Type", "text/html; charset=utf-8")
         self.finish(html)
@@ -406,21 +410,66 @@ class WorkspaceViewerHandler(BaseHandler):
 class WorkspaceTerminalHandler(BaseHandler):
     @web.authenticated
     def get(self):
-        base_url = self.settings.get("base_url", "/")
-        viewer_base = ujoin(base_url, "claude-notebook")
-        html = STATIC_DIR.joinpath("terminal.html").read_text(encoding="utf-8")
-        html = html.replace('href="terminal.css"', f'href="{viewer_base}/static/terminal.css"')
-        html = html.replace('src="keyboard-guard.js"', f'src="{viewer_base}/static/keyboard-guard.js"')
-        html = html.replace('src="terminal.js"', f'src="{viewer_base}/static/terminal.js"')
+        base_url = self.settings.get("base_url", "/").rstrip("/")
+        viewer_base = base_url + "/claude-notebook"
         xsrf = self.get_xsrf_string()
+
+        focus = self.get_argument("focus", None)
+        if focus is None and "/terminal" in self.request.path:
+            focus = "terminal"
+
+        html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
         html = self.inject_script(
             html,
             __VIEWER_BASE=viewer_base,
-            __JUPYTER_BASE=base_url.rstrip("/"),
+            __JUPYTER_BASE=base_url,
+            __XSRF_TOKEN=xsrf,
+            __FOCUS=focus or "",
+        )
+        self.set_header("Content-Type", "text/html; charset=utf-8")
+        self.finish(html)
+
+
+class LegacyTerminalHandler(BaseHandler):
+    @web.authenticated
+    def get(self):
+        base_url = self.settings.get("base_url", "/").rstrip("/")
+        viewer_base = base_url + "/claude-notebook"
+        xsrf = self.get_xsrf_string()
+        html = STATIC_DIR.joinpath("legacy/terminal.html").read_text(encoding="utf-8")
+        # Path replace — copied from original WorkspaceTerminalHandler (lines 412–414)
+        html = html.replace('href="terminal.css"',     f'href="{viewer_base}/static/terminal.css"')
+        html = html.replace('src="keyboard-guard.js"', f'src="{viewer_base}/static/keyboard-guard.js"')
+        html = html.replace('src="terminal.js"',       f'src="{viewer_base}/static/terminal.js"')
+        html = self.inject_script(
+            html,
+            __VIEWER_BASE=viewer_base,
+            __JUPYTER_BASE=base_url,
             __XSRF_TOKEN=xsrf,
         )
         self.set_header("Content-Type", "text/html; charset=utf-8")
         self.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.finish(html)
+
+
+class LegacyFilesHandler(BaseHandler):
+    @web.authenticated
+    def get(self):
+        base_url = self.settings.get("base_url", "/").rstrip("/")
+        viewer_base = base_url + "/claude-notebook"
+        xsrf = self.get_xsrf_string()
+        html = STATIC_DIR.joinpath("legacy/index.html").read_text(encoding="utf-8")
+        # Path replace — copied from original WorkspaceViewerHandler (lines 393–395)
+        html = html.replace('href="/style.css"',         f'href="{viewer_base}/static/style.css"')
+        html = html.replace('src="/keyboard-guard.js"',  f'src="{viewer_base}/static/keyboard-guard.js"')
+        html = html.replace('src="/app.js"',             f'src="{viewer_base}/static/app.js"')
+        html = self.inject_script(
+            html,
+            __VIEWER_BASE=viewer_base,
+            __JUPYTER_BASE=base_url,
+            __XSRF_TOKEN=xsrf,
+        )
+        self.set_header("Content-Type", "text/html; charset=utf-8")
         self.finish(html)
 
 
@@ -1167,6 +1216,10 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/api/term-hosts/([^/]+)/cleanup"),     _term_h["TermDeleteHookHandler"]),
         (ujoin(base_url, r"/claude-notebook/api/pending-commands"),               _term_h["PendingListHandler"]),
         (ujoin(base_url, r"/claude-notebook/api/pending-commands/([^/]+)"),       _term_h["PendingItemHandler"]),
+    ])
+    handlers.extend([
+        (ujoin(base_url, r"/claude-notebook/legacy-terminal"), LegacyTerminalHandler),
+        (ujoin(base_url, r"/claude-notebook/legacy-files"),    LegacyFilesHandler),
     ])
     nb_app.web_app.add_handlers(".*$", handlers)
     nb_app.log.info("Claude Notebook extension loaded at %s/claude-notebook (workspace: %s)", base_url, workspace)
