@@ -1,4 +1,5 @@
 import * as tabStore from './tab-store.js';
+import { BASE, mutFetchOpts } from '../core/api.js';
 
 let nextLeafId = 1;
 const state = {
@@ -184,20 +185,27 @@ function render() {
     addBtn.title = '이 패널에 새 터미널 추가';
     addBtn.addEventListener('click', async e => {
       e.stopPropagation();
+      e.preventDefault();
       try {
-        const r = await fetch(`${window.__VIEWER_BASE || ''}/api/terminals/new`, {
+        const r = await fetch(`${BASE}/api/terminals/new`, mutFetchOpts({
           method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'X-XSRFToken': window.__XSRF_TOKEN || '' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ host_id: window.__currentHostId || 'local' }),
-        });
-        if (!r.ok) { console.error('new terminal failed', r.status); return; }
+        }));
+        if (!r.ok) {
+          const txt = await r.text();
+          alert(`새 터미널 생성 실패 (${r.status}): ${txt.slice(0, 200)}`);
+          return;
+        }
         const { name } = await r.json();
         const tabId = tabStore.openTab({ kind: 'term', contentRef: name, leafId: leaf.id });
         leaf.activeTabId = tabId;
         state.activeLeafId = leaf.id;
         fire();
-      } catch (err) { console.error(err); }
+      } catch (err) {
+        alert(`+ 클릭 에러: ${err.message}`);
+        console.error(err);
+      }
     });
     bar.appendChild(addBtn);
 
