@@ -435,20 +435,22 @@ const contentEl = document.getElementById('content');
                 return;
             }
 
-            // .html / .htm — sandboxed iframe 으로 inline 렌더링. allow-scripts
-            // 없음 (XSS 차단), allow-same-origin 도 X (workspace 자원 격리).
-            // Source view 가 필요하면 사용자가 .txt 로 보거나 raw 링크 사용.
+            // .html / .htm — /raw/<path> 디렉토리 기반 URL 로 iframe inline
+            // 렌더링. 상대 경로 (CSS/img/font) 가 정상 resolve 됨.
+            // sandbox: allow-scripts (single-user dev 환경, 자기 자신 파일이라
+            // XSS 위험 낮음). allow-same-origin 은 미부여 — workspace API 접근
+            // 차단 유지.
             if (ext === '.html' || ext === '.htm') {
-                const htmlUrl = `${BASE}/api/file?path=${encodeURIComponent(path)}&raw=1`;
+                const rawUrl = `${BASE}/raw/${path.split('/').map(encodeURIComponent).join('/')}`;
                 const fname = parts[parts.length - 1];
                 previewBody.innerHTML =
-                    `<iframe class="html-frame" src="${htmlUrl}" sandbox=""
+                    `<iframe class="html-frame" src="${rawUrl}" sandbox="allow-scripts"
                              style="width:100%;height:100%;border:0;background:#fff"
                              title="${escHtml(fname)}"></iframe>
-                     <div style="position:absolute;top:8px;right:8px;font-size:12px">
-                       <a href="${htmlUrl}" target="_blank" rel="noopener noreferrer"
-                          style="background:rgba(0,0,0,0.05);padding:4px 8px;border-radius:4px;color:inherit;text-decoration:none">
-                         새 창에서 열기 (스크립트 활성)
+                     <div style="position:absolute;top:8px;right:8px;font-size:12px;z-index:10">
+                       <a href="${rawUrl}" target="_blank" rel="noopener noreferrer"
+                          style="background:rgba(0,0,0,0.5);color:#fff;padding:4px 8px;border-radius:4px;text-decoration:none">
+                         새 창에서 열기
                        </a>
                      </div>`;
                 return;

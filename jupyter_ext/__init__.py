@@ -604,6 +604,53 @@ class WorkspaceFileHandler(BaseHandler):
         self.finish()
 
 
+class WorkspaceRawHandler(BaseHandler):
+    """Serve workspace files at directory-based URL so HTML 의 상대 경로
+    (link href, img src 등) 가 정상 resolve 됨. /api/file?path=... 형식은
+    쿼리 URL 이라 상대 경로가 깨지는 문제 회피.
+
+    URL: /claude-notebook/raw/<sub/path/file.ext>
+    """
+
+    @web.authenticated
+    async def get(self, sub_path):
+        workspace = self.get_workspace()
+        if not is_safe_path(workspace, sub_path):
+            raise web.HTTPError(400, "Invalid path: %s" % sub_path)
+        full_path = (workspace / sub_path).resolve()
+        if not full_path.is_file():
+            raise web.HTTPError(404, "Not found: %s" % sub_path)
+        ext = full_path.suffix.lower()
+        text_raw_types = {
+            '.html': 'text/html; charset=utf-8',
+            '.htm':  'text/html; charset=utf-8',
+            '.svg':  'image/svg+xml',
+            '.css':  'text/css; charset=utf-8',
+            '.js':   'application/javascript; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.txt':  'text/plain; charset=utf-8',
+            '.md':   'text/markdown; charset=utf-8',
+        }
+        ct = (
+            IMAGE_CONTENT_TYPES.get(ext)
+            or MEDIA_CONTENT_TYPES.get(ext)
+            or text_raw_types.get(ext)
+            or 'application/octet-stream'
+        )
+        self.set_header("Content-Type", ct)
+        self.set_header("Content-Length", str(full_path.stat().st_size))
+        self.set_header("Cache-Control", "no-cache, must-revalidate")
+        self.set_header("Accept-Ranges", "bytes")
+        with open(full_path, "rb") as f:
+            while True:
+                chunk = f.read(4 * 1024 * 1024)
+                if not chunk:
+                    break
+                self.write(chunk)
+                await self.flush()
+        self.finish()
+
+
 class WorkspaceXlsxHandler(BaseHandler):
     """Read an .xlsx (or .xls) and return every sheet as JSON rows.
 
@@ -1203,6 +1250,10 @@ def load_jupyter_server_extension(nb_app):
         (ujoin(base_url, r"/claude-notebook/terminal"), WorkspaceTerminalHandler),
         (ujoin(base_url, r"/claude-notebook/files"), WorkspaceViewerHandler),
         (ujoin(base_url, r"/claude-notebook/static/(.+)"), WorkspaceStaticHandler),
+        # /raw/<path> — 디렉토리 기반 URL 로 파일 서빙. HTML inline preview 가
+        # 상대 경로 (CSS/img/font) 도 정상 resolve 하도록 (api/file 쿼리 URL
+        # 은 base 가 잘못 잡혀 깨짐).
+        (ujoin(base_url, r"/claude-notebook/raw/(.+)"), WorkspaceRawHandler),
         (ujoin(base_url, r"/claude-notebook/api/tree"), WorkspaceTreeHandler),
         (ujoin(base_url, r"/claude-notebook/api/file"), WorkspaceFileHandler),
         (ujoin(base_url, r"/claude-notebook/api/xlsx"), WorkspaceXlsxHandler),

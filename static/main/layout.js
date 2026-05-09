@@ -157,10 +157,19 @@ export function restoreLayout(json) {
 
 function render() {
   if (!mountEl) return;
-  // Reuse existing leaf DOM where possible (avoid re-render churn)
+  // Smarter render: 절대 mountEl.innerHTML='' 하지 않음 — iframe 이 detach
+  // 되면 contentWindow reload 되어 file viewer 가 finder 로 reset 됨 (사용자
+  // 보고 회귀: "탭 다른 거 만지다가 돌아오면 files 형태로 바뀜").
+  // 1) existing leaves 매핑
   const existing = new Map();
   mountEl.querySelectorAll('.leaf').forEach(el => existing.set(el.dataset.leafId, el));
-  mountEl.innerHTML = '';
+  // 2) state.leaves 에 없는 leaf 는 제거
+  const validIds = new Set(state.leaves.map(l => l.id));
+  for (const [id, el] of existing) {
+    if (!validIds.has(id)) el.remove();
+  }
+  // 3) splitters 는 stateless — 일괄 제거 후 아래 루프에서 재삽입
+  mountEl.querySelectorAll('.splitter').forEach(el => el.remove());
   state.leaves.forEach((leaf, i) => {
     let sec = existing.get(leaf.id);
     if (!sec) {
@@ -190,8 +199,10 @@ function render() {
       const tEl = document.createElement('button');
       tEl.type = 'button';
       tEl.className = 'tab' + (t.id === leaf.activeTabId ? ' active' : '');
+      tEl.dataset.tabId = t.id;  // app.js 가 contentRef 변경 시 직접 DOM 업데이트
       tEl.innerHTML = '<span class="tab-name"></span><span class="tab-close" title="닫기">×</span>';
       tEl.querySelector('.tab-name').textContent = t.contentRef;
+      tEl.title = t.currentFile || t.contentRef;  // tooltip 에 full path
       tEl.addEventListener('click', e => {
         // closest() 로 X 글리프 외 부위 클릭도 잡음 (hit area)
         if (e.target.closest('.tab-close')) {
@@ -289,10 +300,11 @@ function render() {
       emptyEl.style.display = 'none';
     }
 
-    // sec 를 먼저 mountEl 에 붙여둬야 mount-tab CustomEvent 가 document 까지
-    // bubble — innerHTML='' 로 detach 된 직후라 dispatch 시점에 parent 없으면
-    // app.js 의 document-level 핸들러가 안 잡힘 (iframe 안 만들어짐 버그).
-    mountEl.appendChild(sec);
+    // sec 를 mountEl 에 attach — 이미 올바른 위치면 건너뛰고 (iframe reload
+     // 회귀 회피), 아니면 appendChild 로 추가/이동.
+    if (sec.parentElement !== mountEl) {
+      mountEl.appendChild(sec);
+    }
 
     // 3) 모든 탭 컨테이너의 가시성 토글 — 활성만 보이게
     tabsHere.forEach(t => {
@@ -313,14 +325,19 @@ function render() {
       }
     });
 
-    // 다음 leaf 와의 사이에 splitter 삽입
+    // 다음 leaf 와의 사이에 splitter 삽입 — 다음 leaf sec 의 직전에 insertBefore
     if (i < state.leaves.length - 1) {
       const sp = document.createElement('div');
       sp.className = 'splitter v';
       sp.dataset.leftId = leaf.id;
       sp.dataset.rightId = state.leaves[i + 1].id;
       attachVDrag(sp);
-      mountEl.appendChild(sp);
+      const nextSec = mountEl.querySelector(`.leaf[data-leaf-id="${state.leaves[i + 1].id}"]`);
+      if (nextSec) {
+        mountEl.insertBefore(sp, nextSec);
+      } else {
+        mountEl.appendChild(sp);
+      }
     }
   });
 }

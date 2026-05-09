@@ -45,9 +45,16 @@ safe('initSidebar', initSidebar);
 // legacy iframe 에 hash deep-link 로 위임. iframe 이 마운트 안 됐으면 새로
 // 만들고 load 직후 hash 설정.
 const openFileTab = (path) => {
-  // 1) 활성 leaf 의 'files' 탭 우선, 없으면 아무 'files' 탭, 그것도 없으면 새로 만듦
+  // 1) 우선 순위:
+  //    a) 현재 활성 leaf 의 활성 탭이 'files' 면 그거 (사용자가 그 탭에서 작업 중)
+  //    b) 없으면 활성 leaf 의 첫 'files' 탭
+  //    c) 없으면 아무 leaf 의 첫 'files' 탭
+  //    d) 없으면 새로 만듦
   const activeLeafId = layout.getActiveLeafId();
-  let filesTab = tabStore.tabsForLeaf(activeLeafId).find(t => t.kind === 'files');
+  const activeLeaf = layout.getLeavesInVisualOrder().find(l => l.id === activeLeafId);
+  const activeTab = activeLeaf?.activeTabId ? tabStore.getTab(activeLeaf.activeTabId) : null;
+  let filesTab = (activeTab?.kind === 'files') ? activeTab : null;
+  if (!filesTab) filesTab = tabStore.tabsForLeaf(activeLeafId).find(t => t.kind === 'files');
   if (!filesTab) filesTab = tabStore.getAllTabs().find(t => t.kind === 'files');
   if (!filesTab) {
     filesCount = Math.max(1, filesCount + 1);
@@ -308,15 +315,27 @@ safe('initTermList', () => initTermList({
   addBtn: document.getElementById('new-term-btn'),
 }));
 
-// 'files' iframe 의 legacy app 이 파일 열 때 알림 → tab.currentFile persist
-// → F5 후 자동 복원 (mount-tab 의 ifr.load 핸들러).
+// 'files' iframe 의 legacy app 이 파일 열 때 알림 → tab.currentFile +
+// contentRef (탭 타이틀) 업데이트. F5 후 자동 복원도 지원.
 window.addEventListener('message', (e) => {
   if (!e.data || e.data.type !== 'cn-file-opened') return;
-  // e.source 로 어느 iframe 인지 역매핑 (codex 추천)
   for (const ifr of document.querySelectorAll('iframe[data-files-frame]')) {
     if (ifr.contentWindow === e.source) {
       const tabId = ifr.dataset.tabId;
-      if (tabId) tabStore.updateTab(tabId, { currentFile: e.data.path });
+      if (!tabId) break;
+      const path = e.data.path;
+      // contentRef 를 파일명으로 변경 (사용자 요청: "탭이 그 파일로 그대로
+      // 가게"). 탭 타이틀에 파일명, tooltip 에 full path.
+      const fname = path.split('/').pop() || path;
+      tabStore.updateTab(tabId, { currentFile: path, contentRef: fname });
+      // updateTab 은 persist-only (re-render 없음 — fetch ERR_ABORTED 회귀
+      // 회피). DOM 의 탭 라벨은 직접 업데이트.
+      const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
+      if (tabEl) {
+        const nameEl = tabEl.querySelector('.tab-name');
+        if (nameEl) nameEl.textContent = fname;
+        tabEl.title = path;
+      }
       break;
     }
   }
