@@ -200,3 +200,38 @@
   #sidebar { width: 100%; }
   #app { flex-direction: column; }
 }
+
+/* ── Terminals sidebar list ── */
+.term-list { padding: 4px 8px; }
+.term-list li { list-style: none; }
+.term-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.term-link:hover { background: var(--bg-hover, #f0f0ee); }
+.term-link.active { background: var(--accent, #2f6feb); color: #fff; }
+.term-link .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success, #16a34a);
+  flex-shrink: 0;
+}
+.term-link .term-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-link .term-host { color: var(--text-secondary, #6b6b66); font-size: 11px; }
+.term-link.active .term-host { color: rgba(255,255,255,0.85); }
+.term-link .pending {
+  margin-left: 4px;
+  color: var(--accent, #2f6feb);
+  font-size: 12px;
+}

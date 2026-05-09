@@ -6,6 +6,7 @@ import { TerminalInstance } from './terminals/term-instance.js';
 import { FileViewerInstance } from './viewers/file-instance.js';
 import { initTree, loadTree } from './ui/tree.js';
 import { initSidebar } from './ui/sidebar.js';
+import { init as initTermList } from './terminals/term-list.js';
 
 const JUPYTER_BASE = window.__JUPYTER_BASE !== undefined ? window.__JUPYTER_BASE : BASE;
 
@@ -92,22 +93,11 @@ if (splitBtn) {
   });
 }
 
-// New terminal button in sidebar
-const newTermBtn = document.getElementById('new-term-btn');
-if (newTermBtn) {
-  newTermBtn.addEventListener('click', () => {
-    fetch(`${JUPYTER_BASE}/api/terminals`, mutFetchOpts({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    })).then(r => r.json()).then(data => {
-      const name = data.name || data.id;
-      if (!name) throw new Error('no name in response');
-      const leafId = layout.getActiveLeafId();
-      const tabId = tabStore.openTab({ kind: 'term', contentRef: name, leafId });
-      layout.activateTab(tabId);
-    }).catch(err => console.error('create terminal failed', err));
-  });
-}
+// Terminals sidebar section — 5s polling + pending command UI
+initTermList({
+  listEl: document.getElementById('term-list'),
+  addBtn: document.getElementById('new-term-btn'),
+});
 
 // resize → fit terminals
 window.addEventListener('resize', () => {
