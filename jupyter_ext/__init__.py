@@ -17,6 +17,8 @@ from tornado.ioloop import IOLoop
 from notebook.utils import url_path_join as ujoin
 from notebook.base.handlers import IPythonHandler
 
+from .jsonio import write_json_atomic
+
 # Max text file size to serve inline (10 MB); larger files get a too-large hint
 _MAX_TEXT_PREVIEW = 10 * 1024 * 1024
 
@@ -204,9 +206,8 @@ def _read_config(filepath):
 
 
 def _write_config(filepath, data):
-    """Write a JSON config file."""
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Write a JSON config file atomically."""
+    write_json_atomic(filepath, data)
 
 
 def _read_names():
