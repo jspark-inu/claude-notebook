@@ -19,10 +19,13 @@ const JUPYTER_BASE = window.__JUPYTER_BASE !== undefined ? window.__JUPYTER_BASE
 // instances: tabId → instance (lifecycle bound to tab)
 const instances = new Map();
 
-layout.init(document.getElementById('main'));
+// 한 init 이 실패해도 다른 거 살아남게 — runtime error 격리
+function safe(name, fn) {
+  try { fn(); } catch (e) { console.error(`[init] ${name} failed:`, e); }
+}
 
-// Sidebar (existing module — needs the IDs we put in index.html)
-initSidebar();
+safe('layout', () => layout.init(document.getElementById('main')));
+safe('initSidebar', initSidebar);
 
 // §5.7 보존 모듈 초기화 ─────────────────────────────────────────────────────
 
@@ -33,22 +36,16 @@ const openFileTab = (path) => {
   layout.activateTab(tabId);
 };
 
-// Finder — #finder DOM 은 index.html에 hidden 으로 존재 (tree.js 가 탐색 역할)
-// openFile: 파일 클릭 시 탭으로 열기, onNavigate: 디렉토리 탐색 유지
-initFinder({ openFile: openFileTab, onNavigate: loadFinderGrid });
-
-// File ops 버튼 (#newFileBtn / #newFolderBtn) — finder toolbar 에 있음
-initFileOpsButtons({
+safe('initFinder', () => initFinder({ openFile: openFileTab, onNavigate: loadFinderGrid }));
+safe('initFileOpsButtons', () => initFileOpsButtons({
   getCurrentDir,
   onChanged: () => loadFinderGrid(getCurrentDir()),
-});
-
-// 키보드 단축키 help modal (#helpOverlay / #previewHelp 버튼)
-initKeyboardHelp();
+}));
+safe('initKeyboardHelp', initKeyboardHelp);
 
 // Snapshot history modal (#historyOverlay / #previewHistory 버튼)
 // getFile: 현재 활성 파일 탭의 { path, content, extension } 반환
-initHistoryModal({
+safe('initHistoryModal', () => initHistoryModal({
   getFile: () => {
     const activeLeafId = layout.getActiveLeafId();
     const leaf = layout.getLeavesInVisualOrder().find(l => l.id === activeLeafId);
@@ -71,7 +68,7 @@ initHistoryModal({
     }
     console.log('[history] restored, content length:', content?.length);
   },
-});
+}));
 
 // 파일 탭 활성화 시 previewHistory / previewHelp 버튼 표시
 const previewHistory = document.getElementById('previewHistory');
@@ -91,16 +88,17 @@ tabStore.onChange(syncPreviewBtns);
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Tree — uses #tree
-initTree({
-  openFile: (path) => {
-    const leafId = layout.getActiveLeafId();
-    const tabId = tabStore.openTab({ kind: 'file', contentRef: path, leafId });
-    layout.activateTab(tabId);
-  },
-  openDir: () => {},
+safe('initTree', () => {
+  initTree({
+    openFile: (path) => {
+      const leafId = layout.getActiveLeafId();
+      const tabId = tabStore.openTab({ kind: 'file', contentRef: path, leafId });
+      layout.activateTab(tabId);
+    },
+    openDir: () => {},
+  });
+  loadTree();
 });
-loadTree();
 
 // Mount tab → create instance, mount on host element ONCE.
 document.addEventListener('mount-tab', e => {
@@ -205,13 +203,13 @@ if (filesBtn) {
 }
 
 // SSH 칩 (topbar ssh-slot)
-initSshChip(document.getElementById('ssh-slot'));
+safe('initSshChip', () => initSshChip(document.getElementById('ssh-slot')));
 
 // Terminals sidebar section — 5s polling + pending command UI
-initTermList({
+safe('initTermList', () => initTermList({
   listEl: document.getElementById('term-list'),
   addBtn: document.getElementById('new-term-btn'),
-});
+}));
 
 // resize → fit terminals
 window.addEventListener('resize', () => {
