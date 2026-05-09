@@ -66,22 +66,22 @@ export class TerminalInstance {
     const url = `${WS_BASE}${JUPYTER}/terminals/websocket/${this.name}`;
     this.socket = new WebSocket(url);
 
-    this.socket.onopen = () => {
+    this.socket.addEventListener('open', () => {
       const dims = this.fitAddon?.proposeDimensions();
       if (dims && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify(['set_size', dims.rows, dims.cols]));
       }
-    };
+    });
 
-    this.socket.onmessage = (e) => {
+    // Use addEventListener (not onmessage) so other listeners (chat, status) can coexist.
+    this.socket.addEventListener('message', (e) => {
       try {
         const msg = JSON.parse(e.data);
         if (msg[0] === 'stdout') {
           this.xterm.write(msg[1]);
         }
-        // 'disconnect' message handling is done in terminal.js via currentWs.onmessage override
       } catch (_) {}
-    };
+    });
 
     this.xterm.onData((d) => {
       if (this.socket?.readyState === WebSocket.OPEN) {
@@ -277,6 +277,25 @@ export class TerminalInstance {
 
     // expose ref for attachInputBar
     this._pendingFilesRef = { list: this._pendingFiles, render };
+  }
+
+  // ----- chat mode -----
+  setChatMode(enabled) {
+    if (this.chatMode === !!enabled) return;
+    this.chatMode = !!enabled;
+    // Delegate to IIFE-scoped openChat()/closeChat() in terminal.js via bridge
+    if (typeof window.__setChatMode === 'function') {
+      window.__setChatMode(this.chatMode);
+    }
+  }
+
+  isChatMode() { return !!this.chatMode; }
+
+  // ----- config modal -----
+  openConfigModal() {
+    if (typeof window.__openTerminalConfig === 'function') {
+      window.__openTerminalConfig(this);
+    }
   }
 
   // ----- virtual keyboard -----

@@ -1602,4 +1602,19 @@ loadTerminals().then(() => connectFromHash());
 setInterval(loadTerminals, 10000);
 window.addEventListener('hashchange', connectFromHash);
 
+// ===== Bridge to TerminalInstance (task 5c) =====
+// TerminalInstance.setChatMode(enabled) calls this to sync the IIFE-scoped chatMode state.
+window.__setChatMode = function (enabled) {
+    if (enabled) {
+        openChat();
+    } else {
+        closeChat();
+    }
+};
+
+// TerminalInstance.openConfigModal() calls this to open the config modal for a given terminal.
+window.__openTerminalConfig = function (inst) {
+    showConfigModal(inst ? inst.name : currentName);
+};
+
 })();
