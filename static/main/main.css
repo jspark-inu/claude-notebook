@@ -5,7 +5,7 @@
   gap: 12px;
   height: 48px;
   padding: 0 14px;
-  background: var(--bg-secondary, #f7f7f5);
+  background: var(--code-bg);
   border-bottom: 1px solid var(--border, #e5e5e3);
   font-size: 14px;
 }
@@ -19,7 +19,7 @@
   cursor: pointer;
   font: inherit;
 }
-#topbar button:hover { background: var(--bg-hover, #f0f0ee); }
+#topbar button:hover { background: var(--sidebar-hover); }
 
 /* App layout */
 #app {
@@ -31,7 +31,7 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-sidebar, #fafaf8);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border, #e5e5e3);
   overflow: hidden;
 }
@@ -66,7 +66,7 @@
   display: flex;
   align-items: stretch;
   height: 34px;
-  background: var(--bg-secondary, #f7f7f5);
+  background: var(--code-bg);
   border-bottom: 1px solid var(--border, #e5e5e3);
   flex-shrink: 0;
   overflow-x: auto;
@@ -77,7 +77,7 @@
   gap: 6px;
   padding: 0 10px 0 14px;
   border: 0;
-  border-right: 1px solid var(--border-soft, #efeeec);
+  border-right: 1px solid var(--border);
   background: transparent;
   cursor: pointer;
   font-size: 12.5px;
@@ -124,7 +124,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border-soft, #efeeec);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .sidebar-head button {
@@ -136,7 +136,7 @@
   font: 12px/1.4 inherit;
   color: var(--text-secondary, #6b6b66);
 }
-.sidebar-head button:hover { background: var(--bg-hover, #f0f0ee); color: var(--text, #1f1f1e); }
+.sidebar-head button:hover { background: var(--sidebar-hover); color: var(--text, #1f1f1e); }
 #sidebarClose {
   font-size: 16px;
   padding: 2px 8px;
@@ -148,7 +148,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-bottom: 1px solid var(--border-soft, #efeeec);
+  border-bottom: 1px solid var(--border);
 }
 .side-section:last-child { flex: 1; }
 .side-head {
@@ -228,7 +228,7 @@
   font-size: 13px;
   text-align: left;
 }
-.term-link:hover { background: var(--bg-hover, #f0f0ee); }
+.term-link:hover { background: var(--sidebar-hover); }
 .term-link.active { background: var(--accent, #2f6feb); color: #fff; }
 .term-link .dot {
   width: 6px;
@@ -260,7 +260,7 @@
   font-size: 13px;
   color: var(--text, #1f1f1e);
 }
-.ssh-chip:hover { background: var(--bg-hover, #f0f0ee); }
+.ssh-chip:hover { background: var(--sidebar-hover); }
 .ssh-chip .ssh-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--success, #16a34a);
@@ -303,7 +303,7 @@
   font: inherit;
   font-size: 13px;
 }
-.ssh-dropdown .dd-row:hover { background: var(--accent-soft, #e8eefd); color: var(--accent, #2f6feb); }
+.ssh-dropdown .dd-row:hover { background: var(--accent-light); color: var(--accent, #2f6feb); }
 .ssh-dropdown .dd-row.current .dd-icon { color: var(--success, #16a34a); }
 .ssh-dropdown .dd-divider { height: 1px; background: var(--border, #e5e5e3); margin: 4px 0; }
 
@@ -343,7 +343,7 @@
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid var(--border, #e5e5e3);
-  background: var(--bg-secondary, #f7f7f5);
+  background: var(--code-bg);
 }
 .modal-foot button {
   padding: 6px 14px;
@@ -358,7 +358,7 @@
 
 /* Files-local notice */
 .files-local-notice {
-  background: var(--accent-soft, #e8eefd);
+  background: var(--accent-light);
   color: var(--accent, #2f6feb);
   padding: 8px 12px;
   font-size: 12px;
