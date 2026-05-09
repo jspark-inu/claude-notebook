@@ -33,7 +33,8 @@
 
   <main id="app">
     <aside id="sidebar">
-      <header class="sidebar-head">
+      <!-- 기존 sidebar.js 와 호환 위해 ID 유지하지만 통합 페이지에선 사용 안 함 (topbar ☰ + Theme 가 그 역할) -->
+      <header class="sidebar-head" hidden>
         <button id="sidebarClose" type="button" aria-label="닫기">&times;</button>
         <button id="terminalBtn" type="button">Terminal</button>
         <button id="themeToggleBtn" type="button">Theme</button>
