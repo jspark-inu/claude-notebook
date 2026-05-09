@@ -43,6 +43,7 @@ let currentWs = null;
 let currentName = null;
 let currentDisplayName = null;
 let fitAddon = null;
+let currentInstance = null;  // TerminalInstance (task5a+)
 let terminalData = {};  // name -> {display_name, last_activity}
 let chatMode = false;
 
@@ -745,6 +746,13 @@ function setupResizeObserver() {
 
 // Connect to terminal — orchestrator
 function connectTerminal(name) {
+    // TerminalInstance 모듈이 아직 로드되지 않은 경우 재시도
+    if (!window.TerminalInstance) {
+        console.warn('TerminalInstance not loaded yet — retrying in 100ms');
+        setTimeout(() => connectTerminal(name), 100);
+        return;
+    }
+
     disconnect();
     if (selectMode) hideSelectOverlay();
     currentName = name;
@@ -786,37 +794,56 @@ function connectTerminal(name) {
         el.classList.toggle('active', el.dataset.name === name);
     });
 
-    // Create xterm
+    // Create xterm + WebSocket via TerminalInstance (task5a)
     terminalContainer.innerHTML = '';
-    currentTerm = createXterm();
+    if (currentInstance) currentInstance.dispose();
+    currentInstance = new window.TerminalInstance({ name });
+    currentInstance.mount(terminalContainer);
 
-    fitAddon = new FitAddon.FitAddon();
-    const webLinksAddon = new WebLinksAddon.WebLinksAddon();
-    currentTerm.loadAddon(fitAddon);
-    currentTerm.loadAddon(webLinksAddon);
-    currentTerm.open(terminalContainer);
+    // Expose refs so existing code (sendInput, chatSendInput, scroll, etc.) keeps working
+    currentTerm = currentInstance.xterm;
+    fitAddon = currentInstance.fitAddon;
+    currentWs = currentInstance.socket;
 
+    // Wire up WS status/disconnect events that terminal.js still owns
+    currentInstance.socket.addEventListener('open', () => {
+        statusDot.classList.remove('disconnected');
+    });
+    currentInstance.socket.addEventListener('close', () => {
+        statusDot.classList.add('disconnected');
+    });
+    currentInstance.socket.addEventListener('error', () => {
+        statusDot.classList.add('disconnected');
+    });
+    currentInstance.socket.addEventListener('message', (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg[0] === 'disconnect') {
+                statusDot.classList.add('disconnected');
+            }
+        } catch (e) {}
+    });
+
+    // Scroll lock setup after xterm is open
     setTimeout(() => {
-        fitAddon.fit();
         const viewport = terminalContainer.querySelector('.xterm-viewport');
         if (viewport) {
             setupScrollLock(viewport);
         }
-    }, 50);
-
-    setupWebSocket(name);
-    setupResizeObserver();
+    }, 60);
 }
 
 function disconnect() {
-    if (currentWs) {
-        currentWs.close();
-        currentWs = null;
+    if (currentInstance) {
+        currentInstance.dispose();
+        currentInstance = null;
+    } else {
+        // fallback: dispose individually (should not reach here in task5a+)
+        if (currentWs) { currentWs.close(); }
+        if (currentTerm) { currentTerm.dispose(); }
     }
-    if (currentTerm) {
-        currentTerm.dispose();
-        currentTerm = null;
-    }
+    currentWs = null;
+    currentTerm = null;
     fitAddon = null;
 }
 
