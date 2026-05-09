@@ -51,7 +51,7 @@
   background: var(--bg, #fff);
   position: relative;
 }
-.leaf:last-child { border-right: 0; }
+.leaf:last-of-type { border-right: 0; }
 .leaf.active::before {
   content: '';
   position: absolute;
@@ -195,8 +195,18 @@
 }
 .modal[hidden] { display: none; }
 
+.splitter {
+  flex: 0 0 4px;
+  background: var(--border, #e5e5e3);
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.splitter:hover, .splitter.dragging { background: var(--accent, #2f6feb); }
+
 @media (max-width: 720px) {
   #split-btn { display: none; }
+  .splitter { display: none; }
   #sidebar { width: 100%; }
   #app { flex-direction: column; }
 }

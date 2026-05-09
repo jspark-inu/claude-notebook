@@ -12,6 +12,49 @@ const subs = [];
 export function onChange(fn) { subs.push(fn); }
 function fire() { for (const fn of subs) fn(); render(); }
 
+function attachVDrag(sp) {
+  sp.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    sp.setPointerCapture(e.pointerId);
+    sp.classList.add('dragging');
+
+    const leftId = sp.dataset.leftId;
+    const rightId = sp.dataset.rightId;
+    const L = state.leaves.find(l => l.id === leftId);
+    const R = state.leaves.find(l => l.id === rightId);
+    if (!L || !R) return;
+
+    const startX = e.clientX;
+    const totalSize = L.size + R.size;
+    const startLSize = L.size;
+    const Lel = mountEl.querySelector(`[data-leaf-id="${leftId}"]`);
+    const Rel = mountEl.querySelector(`[data-leaf-id="${rightId}"]`);
+    const rect = mountEl.getBoundingClientRect();
+
+    const onMove = ev => {
+      const dx = (ev.clientX - startX) / rect.width;
+      const newL = Math.max(0.1, Math.min(totalSize - 0.1, startLSize + dx * state.leaves.length));
+      L.size = newL;
+      R.size = totalSize - newL;
+      // DOM 재생성 X — inline style 만 갱신
+      if (Lel) Lel.style.flex = `${L.size} 1 0`;
+      if (Rel) Rel.style.flex = `${R.size} 1 0`;
+    };
+
+    const cleanup = () => {
+      sp.removeEventListener('pointermove', onMove);
+      sp.removeEventListener('pointerup', cleanup);
+      sp.removeEventListener('pointercancel', cleanup);
+      sp.classList.remove('dragging');
+      // 최종 1회 fire — subs 에게만 알림 (render 호출 안 함)
+      for (const fn of subs) fn();
+    };
+    sp.addEventListener('pointermove', onMove);
+    sp.addEventListener('pointerup', cleanup);
+    sp.addEventListener('pointercancel', cleanup);
+  });
+}
+
 export function init(mainEl) {
   mountEl = mainEl;
   tabStore.onChange(render);
@@ -92,7 +135,7 @@ function render() {
   const existing = new Map();
   mountEl.querySelectorAll('.leaf').forEach(el => existing.set(el.dataset.leafId, el));
   mountEl.innerHTML = '';
-  for (const leaf of state.leaves) {
+  state.leaves.forEach((leaf, i) => {
     let sec = existing.get(leaf.id);
     if (!sec) {
       sec = document.createElement('section');
@@ -143,5 +186,15 @@ function render() {
       body.innerHTML = '<div class="leaf-empty" style="padding:40px;text-align:center;color:var(--text-secondary,#888);font-style:italic">사이드바에서 터미널이나 파일을 선택하세요</div>';
     }
     mountEl.appendChild(sec);
-  }
+
+    // 다음 leaf 와의 사이에 splitter 삽입
+    if (i < state.leaves.length - 1) {
+      const sp = document.createElement('div');
+      sp.className = 'splitter v';
+      sp.dataset.leftId = leaf.id;
+      sp.dataset.rightId = state.leaves[i + 1].id;
+      attachVDrag(sp);
+      mountEl.appendChild(sp);
+    }
+  });
 }
