@@ -396,6 +396,8 @@ class WorkspaceViewerHandler(BaseHandler):
             focus = "files"
 
         html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
+        # Insert <base> so relative href/src resolve under /claude-notebook/
+        html = html.replace("</head>", f'<base href="{viewer_base}/">\n</head>', 1)
         html = self.inject_script(
             html,
             __VIEWER_BASE=viewer_base,
@@ -419,6 +421,7 @@ class WorkspaceTerminalHandler(BaseHandler):
             focus = "terminal"
 
         html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
+        html = html.replace("</head>", f'<base href="{viewer_base}/">\n</head>', 1)
         html = self.inject_script(
             html,
             __VIEWER_BASE=viewer_base,
