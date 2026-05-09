@@ -143,7 +143,18 @@ function render() {
       sec.className = 'leaf';
       sec.dataset.leafId = leaf.id;
       sec.innerHTML = '<div class="tabbar"></div><div class="leaf-body"></div>';
-      sec.addEventListener('mousedown', () => activateLeaf(leaf.id));
+      // 클릭으로 leaf 활성화 — 버튼/탭 외 빈 공간만, 버그 회피 위해 click 이 아닌
+      // mousedown 사용 X (mousedown → activateLeaf → fire → render → DOM 재생성 →
+      // 그 위에 발생할 click 의 target 이 사라져 버튼 핸들러 못 잡음).
+      // 대신 capture 단계에서 좌표만 보고 active 토글 — render 안 부름.
+      sec.addEventListener('mousedown', () => {
+        if (state.activeLeafId !== leaf.id) {
+          state.activeLeafId = leaf.id;
+          // visual 만 갱신 — render 안 부름 (subsequent click 의 target 보존)
+          mountEl.querySelectorAll('.leaf').forEach(el =>
+            el.classList.toggle('active', el.dataset.leafId === leaf.id));
+        }
+      });
     }
     sec.classList.toggle('active', leaf.id === state.activeLeafId);
     sec.style.flex = `${leaf.size} 1 0`;
