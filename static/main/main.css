@@ -320,12 +320,14 @@
   padding: 7px 14px;
   border: 0;
   background: transparent;
+  color: var(--text);
   text-align: left;
   cursor: pointer;
   font: inherit;
   font-size: 13px;
 }
 .ssh-dropdown .dd-row:hover { background: var(--accent-light); color: var(--accent); }
+.ssh-dropdown .dd-row.current { color: var(--accent); }
 .ssh-dropdown .dd-row.current .dd-icon { color: var(--success, #16a34a); }
 .ssh-dropdown .dd-divider { height: 1px; background: var(--border); margin: 4px 0; }
 

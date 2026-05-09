@@ -103,12 +103,22 @@ initTree({
 loadTree();
 
 // Mount tab → create instance, mount on host element ONCE.
-// layout.js 가 hostEl 을 영구 컨테이너로 만들어 dispatch 함 — 멱등 처리.
 document.addEventListener('mount-tab', e => {
   const { tab, hostEl } = e.detail;
+
+  // 'files' kind: legacy file 브라우저 (Notion 식 + 폴더 그리드 + 토글 등 기존 기능 풀세트) 를 iframe 으로
+  if (tab.kind === 'files') {
+    if (hostEl.querySelector('iframe[data-files-frame]')) return;  // 이미 마운트됨
+    const ifr = document.createElement('iframe');
+    ifr.dataset.filesFrame = '1';
+    ifr.src = `${BASE}/legacy-files`;
+    ifr.style.cssText = 'width:100%;height:100%;border:0;display:block;background:var(--bg)';
+    hostEl.appendChild(ifr);
+    return;
+  }
+
   let inst = instances.get(tab.id);
   if (inst && inst._mountedHost === hostEl) {
-    // 이미 같은 hostEl 에 마운트됨 → fit 만
     inst.fit?.();
     return;
   }
@@ -120,7 +130,6 @@ document.addEventListener('mount-tab', e => {
     }
     instances.set(tab.id, inst);
   }
-  // 첫 마운트
   if (tab.kind === 'term') {
     inst.mount(hostEl);
   } else {
@@ -148,6 +157,13 @@ if (hash) {
   layout.activateTab(tabId);
 }
 
+// 기본 — 첫 진입 시 Files 탭 자동 오픈 (Notion 식 + 폴더 그리드 + 토글 등 풀세트)
+if (!hash) {
+  const leafId = layout.getActiveLeafId();
+  const tabId = tabStore.openTab({ kind: 'files', contentRef: 'Files', leafId });
+  layout.activateTab(tabId);
+}
+
 // focus query (옛 URL redirect 결과)
 const focus = window.__FOCUS;
 if (focus === 'terminal' && !hash) {
@@ -164,12 +180,22 @@ if (focus === 'terminal' && !hash) {
   }).catch(err => console.error('auto-create terminal failed', err));
 }
 
-// Split button (Task 10 fully wires; here just placeholder)
+// Split button
 const splitBtn = document.getElementById('split-btn');
 if (splitBtn) {
   splitBtn.addEventListener('click', () => {
     const activeId = layout.getActiveLeafId();
     layout.addLeafAfter(activeId);
+  });
+}
+
+// Files button — 활성 leaf 에 Files 탭 열기 (이미 있으면 활성화)
+const filesBtn = document.getElementById('files-btn');
+if (filesBtn) {
+  filesBtn.addEventListener('click', () => {
+    const leafId = layout.getActiveLeafId();
+    const tabId = tabStore.openTab({ kind: 'files', contentRef: 'Files', leafId });
+    layout.activateTab(tabId);
   });
 }
 
