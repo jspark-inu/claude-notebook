@@ -173,7 +173,12 @@ function onMountTab(e) {
     const ifr = document.createElement('iframe');
     ifr.dataset.filesFrame = '1';
     ifr.dataset.tabId = tab.id;  // postMessage e.source 역매핑용
-    ifr.src = `${BASE}/legacy-files`;
+    // Spec 3-b: 현재 chrome 탭의 host 를 iframe 으로 전달 → legacy 가 그 host
+    // 로 fetch (api/tree, api/file)
+    const host = window.__currentHostId || 'local';
+    ifr.src = (host && host !== 'local')
+      ? `${BASE}/legacy-files?host=${encodeURIComponent(host)}`
+      : `${BASE}/legacy-files`;
     ifr.style.cssText = 'width:100%;height:100%;border:0;display:block;background:var(--bg)';
     hostEl.appendChild(ifr);
     // F5 후 복원: tab 에 currentFile 저장돼 있으면 iframe 부팅 후 자동 오픈.

@@ -32,10 +32,21 @@ export function mutFetchOpts(extra) {
     };
 }
 
+/** Spec 3-b: 현재 페이지 host (LegacyFilesHandler 가 inject __HOST). 없으면 'local'. */
+function _hostParam() {
+    const h = window.__HOST || window.__currentHostId;
+    return (h && h !== 'local') ? `&host=${encodeURIComponent(h)}` : '';
+}
+
 /** Build the raw-stream URL for a workspace-absolute path (used by
  *  <img>/<audio>/<video> src and direct download links). */
 export function apiRawUrl(workspacePath) {
-    return `${BASE}/api/file?path=${encodeURIComponent(workspacePath)}&raw=1`;
+    return `${BASE}/api/file?path=${encodeURIComponent(workspacePath)}&raw=1${_hostParam()}`;
+}
+
+/** Append host param to any /api/file or /api/tree URL. */
+export function withHost(url) {
+    return url + (url.includes('?') ? _hostParam() : _hostParam().replace('&', '?'));
 }
 
 /** Normalize backslashes to forward slashes (Windows-side paths). */
@@ -45,9 +56,12 @@ export function normPath(p) {
 
 /** Fetch one tree level (children of `dirPath`) from the workspace API. */
 export async function fetchTreeLevel(dirPath) {
-    const url = dirPath
-        ? `${BASE}/api/tree?path=${encodeURIComponent(dirPath)}`
-        : `${BASE}/api/tree`;
+    const params = new URLSearchParams();
+    if (dirPath) params.set('path', dirPath);
+    const h = window.__HOST || window.__currentHostId;
+    if (h && h !== 'local') params.set('host', h);
+    const qs = params.toString();
+    const url = qs ? `${BASE}/api/tree?${qs}` : `${BASE}/api/tree`;
     const res = await fetch(url, fetchOpts);
     if (!res.ok) throw new Error('Failed to load tree');
     const items = await res.json();

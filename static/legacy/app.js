@@ -10,7 +10,7 @@
  *   - handles the URL-hash back/forward integration
  */
 
-import { BASE, XSRF, fetchOpts } from './core/api.js';
+import { BASE, XSRF, fetchOpts, withHost } from './core/api.js';
 import { escHtml, rewriteRelativeMediaUrls, formatSize } from './core/utils.js';
 import { initSidebar } from './ui/sidebar.js';
 import { initTree, loadTree } from './ui/tree.js';
@@ -456,7 +456,7 @@ const contentEl = document.getElementById('content');
                 return;
             }
 
-            const res = await fetch(`${BASE}/api/file?path=${encodeURIComponent(path)}`, fetchOpts);
+            const res = await fetch(withHost(`${BASE}/api/file?path=${encodeURIComponent(path)}`), fetchOpts);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             currentFileData = data;

@@ -476,6 +476,8 @@ class LegacyFilesHandler(BaseHandler):
         base_url = self.settings.get("base_url", "/").rstrip("/")
         viewer_base = base_url + "/claude-notebook"
         xsrf = self.get_xsrf_string()
+        # Spec 3-b: ?host=<id> 받으면 legacy 안 fetch 가 그 host 로 가도록
+        host = self.get_argument("host", "local")
         html = STATIC_DIR.joinpath("legacy/index.html").read_text(encoding="utf-8")
         # Path replace — copied from original WorkspaceViewerHandler (lines 393–395)
         html = html.replace('href="/style.css"',         f'href="{viewer_base}/static/legacy/style.css"')
@@ -494,6 +496,8 @@ class LegacyFilesHandler(BaseHandler):
             __VIEWER_BASE=viewer_base,
             __JUPYTER_BASE=base_url,
             __XSRF_TOKEN=xsrf,
+            __HOST=host,
+            __currentHostId=host,
         )
         self.set_header("Content-Type", "text/html; charset=utf-8")
         self.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -548,9 +552,40 @@ class WorkspaceTreeHandler(BaseHandler):
 class WorkspaceFileHandler(BaseHandler):
     @web.authenticated
     async def get(self):
-        workspace = self.get_workspace()
+        host = self.get_argument("host", "local")
         file_path = self.get_argument("path", None)
         raw_mode = self.get_argument("raw", None)
+        # Spec 3-b: 원격 호스트 read (텍스트만, raw 모드는 후속)
+        if host != "local":
+            if not file_path:
+                raise web.HTTPError(400, "path required")
+            if raw_mode is not None:
+                raise web.HTTPError(501, "remote raw read not yet supported")
+            from . import ssh_fs
+            try:
+                content, size = ssh_fs.read_text(host, file_path)
+            except FileNotFoundError:
+                raise web.HTTPError(404, "Not found: %s" % file_path)
+            except ValueError as e:
+                raise web.HTTPError(400, str(e))
+            except RuntimeError as e:
+                raise web.HTTPError(502, "remote read failed: %s" % e)
+            ext = ('.' + file_path.rsplit('.', 1)[-1].lower()) if '.' in file_path else ''
+            name = file_path.rsplit('/', 1)[-1]
+            if content is None:
+                # too large or binary
+                self.json_response({
+                    "path": file_path, "name": name, "content": None,
+                    "extension": ext, "too_large": True, "size": size,
+                })
+                return
+            self.json_response({
+                "path": file_path, "name": name,
+                "content": content, "extension": ext,
+            })
+            return
+
+        workspace = self.get_workspace()
         full_path = self.validate_path(file_path)
         if not full_path.is_file():
             raise web.HTTPError(404, "Not found: %s" % file_path)

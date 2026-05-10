@@ -110,3 +110,67 @@ def list_dir(host_id, sub_path=""):
     # local과 동일 정렬: 디렉토리 먼저, 이름 case-insensitive
     items.sort(key=lambda e: (e["type"] != "directory", e["name"].lower()))
     return items
+
+
+# Spec 3-b: 원격 파일 read
+_MAX_TEXT_PREVIEW = 2 * 1024 * 1024  # 2 MB — local 과 동일한 한도
+
+
+def stat_file(host_id, sub_path):
+    """원격 파일 stat — size + mtime + extension. 없으면 None.
+
+    list_dir 처럼 sh -s + "$1" 로 path injection 차단.
+    """
+    sub = _safe_subpath(sub_path)
+    if not sub:
+        raise ValueError("path required")
+    remote_script = (
+        'cd "$HOME" 2>/dev/null || exit 1\n'
+        'sub="$1"\n'
+        'if [ ! -f "$sub" ]; then exit 2; fi\n'
+        # %s = size, %T@ = mtime, 그 다음 file 자체 (file -b 의 mime)
+        'stat -c "%s %Y" "$sub"\n'
+    )
+    cmd = _ssh_base(host_id) + ["sh", "-s", "--", sub]
+    try:
+        proc = subprocess.run(
+            cmd, input=remote_script,
+            capture_output=True, text=True, timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("ssh timeout")
+    if proc.returncode == 2:
+        return None
+    if proc.returncode != 0:
+        raise RuntimeError(f"ssh exit {proc.returncode}: {proc.stderr.strip()[:200]}")
+    parts = proc.stdout.strip().split()
+    if len(parts) < 2:
+        raise RuntimeError(f"unexpected stat output: {proc.stdout!r}")
+    return {"size": int(parts[0]), "mtime": float(parts[1])}
+
+
+def read_text(host_id, sub_path, max_size=_MAX_TEXT_PREVIEW):
+    """원격 텍스트 파일 read. 큰 파일은 (None, size) 로 too_large 표시."""
+    info = stat_file(host_id, sub_path)
+    if info is None:
+        raise FileNotFoundError(sub_path)
+    if info["size"] > max_size:
+        return None, info["size"]
+    sub = _safe_subpath(sub_path)
+    remote_script = (
+        'cd "$HOME" 2>/dev/null || exit 1\n'
+        'cat "$1"\n'
+    )
+    cmd = _ssh_base(host_id) + ["sh", "-s", "--", sub]
+    proc = subprocess.run(
+        cmd, input=remote_script.encode("utf-8"),
+        capture_output=True, timeout=30,  # bytes 모드 (utf-8 decode 직접)
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"ssh cat failed: {proc.stderr.decode('utf-8', 'replace')[:200]}")
+    try:
+        return proc.stdout.decode("utf-8"), info["size"]
+    except UnicodeDecodeError:
+        # binary file
+        return None, info["size"]
+
