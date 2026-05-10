@@ -324,26 +324,48 @@ safe('initTermList', () => initTermList({
 // 'files' iframe 의 legacy app 이 파일 열 때 알림 → tab.currentFile +
 // contentRef (탭 타이틀) 업데이트. F5 후 자동 복원도 지원.
 window.addEventListener('message', (e) => {
-  if (!e.data || e.data.type !== 'cn-file-opened') return;
-  for (const ifr of document.querySelectorAll('iframe[data-files-frame]')) {
-    if (ifr.contentWindow === e.source) {
-      const tabId = ifr.dataset.tabId;
-      if (!tabId) break;
-      const path = e.data.path;
-      // contentRef 를 파일명으로 변경 (사용자 요청: "탭이 그 파일로 그대로
-      // 가게"). 탭 타이틀에 파일명, tooltip 에 full path.
-      const fname = path.split('/').pop() || path;
-      tabStore.updateTab(tabId, { currentFile: path, contentRef: fname });
-      // updateTab 은 persist-only (re-render 없음 — fetch ERR_ABORTED 회귀
-      // 회피). DOM 의 탭 라벨은 직접 업데이트.
-      const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
-      if (tabEl) {
-        const nameEl = tabEl.querySelector('.tab-name');
-        if (nameEl) nameEl.textContent = fname;
-        tabEl.title = path;
+  if (!e.data) return;
+  // 'files' iframe — 파일 열림 알림 → contentRef = 파일명
+  if (e.data.type === 'cn-file-opened') {
+    for (const ifr of document.querySelectorAll('iframe[data-files-frame]')) {
+      if (ifr.contentWindow === e.source) {
+        const tabId = ifr.dataset.tabId;
+        if (!tabId) break;
+        const path = e.data.path;
+        const fname = path.split('/').pop() || path;
+        tabStore.updateTab(tabId, { currentFile: path, contentRef: fname });
+        const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
+        if (tabEl) {
+          const nameEl = tabEl.querySelector('.tab-name');
+          if (nameEl) nameEl.textContent = fname;
+          tabEl.title = path;
+        }
+        break;
       }
-      break;
     }
+    return;
+  }
+  // 'term' iframe — 사용자가 iframe 안 사이드바로 다른 터미널 전환 시 외부
+  // 탭 라벨 동기화. legacy 의 updateHash 가 iframe URL hash 자체 갱신하므로
+  // F5 후 복원도 자동 (mount-tab 시 ifr.src 새로 만들지만 contentRef 가
+  // 이미 업데이트된 name 이라 그 hash 로 마운트됨).
+  if (e.data.type === 'cn-term-switched') {
+    const name = e.data.name;
+    for (const ifr of document.querySelectorAll('iframe[data-term-frame]')) {
+      if (ifr.contentWindow === e.source) {
+        const tabId = ifr.dataset.tabId;
+        if (!tabId) break;
+        tabStore.updateTab(tabId, { contentRef: name });
+        const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
+        if (tabEl) {
+          const nameEl = tabEl.querySelector('.tab-name');
+          if (nameEl) nameEl.textContent = `Terminal ${name}`;
+          tabEl.title = `Terminal ${name}`;
+        }
+        break;
+      }
+    }
+    return;
   }
 });
 

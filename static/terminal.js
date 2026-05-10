@@ -757,6 +757,11 @@ function connectTerminal(name) {
     if (selectMode) hideSelectOverlay();
     currentName = name;
     currentDisplayName = getDisplayName(terminalData[name] || {name: name});
+    // outer (multi-tab unified) 페이지에 현재 활성 터미널 알림 → 외부 탭
+    // 라벨 자동 동기화 (사용자 선택 (B): iframe 사이드바 + 외부 탭 동시 사용).
+    try {
+        window.parent?.postMessage({ type: 'cn-term-switched', name }, '*');
+    } catch (_) {}
 
     // Reset chat mode
     chatMode = false;
