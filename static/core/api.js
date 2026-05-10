@@ -43,11 +43,16 @@ export function normPath(p) {
     return p ? p.replace(/\\/g, '/') : p;
 }
 
-/** Fetch one tree level (children of `dirPath`) from the workspace API. */
+/** Fetch one tree level (children of `dirPath`) from the workspace API.
+ *  Spec 3: window.__currentHostId 가 'local' 이 아니면 ?host=<id> 자동 추가
+ *  → 백엔드가 SSH 로 그 원격 호스트 디렉토리 list. */
 export async function fetchTreeLevel(dirPath) {
-    const url = dirPath
-        ? `${BASE}/api/tree?path=${encodeURIComponent(dirPath)}`
-        : `${BASE}/api/tree`;
+    const params = new URLSearchParams();
+    if (dirPath) params.set('path', dirPath);
+    const host = window.__currentHostId;
+    if (host && host !== 'local') params.set('host', host);
+    const qs = params.toString();
+    const url = qs ? `${BASE}/api/tree?${qs}` : `${BASE}/api/tree`;
     const res = await fetch(url, fetchOpts);
     if (!res.ok) throw new Error('Failed to load tree');
     const items = await res.json();

@@ -97,20 +97,14 @@ async function switchTo(id) {
     render();
     window.__currentHostId = id;
     for (const fn of subs) fn(id);
-    showFilesLocalNotice();
+    // Spec 3: host 변경 시 OUTER 트리 그 호스트 기준으로 reload
+    try {
+      const treeEl = document.getElementById('tree');
+      if (treeEl) treeEl.innerHTML = '';
+      // dynamic import — circular dep 회피
+      import('../ui/tree.js').then(m => m.loadTree?.());
+    } catch (_) {}
   }, 700);
-}
-
-function showFilesLocalNotice() {
-  if (sessionStorage.getItem('files-local-notice-shown')) return;
-  sessionStorage.setItem('files-local-notice-shown', '1');
-  const sec = document.getElementById('files-section');
-  if (!sec) return;
-  const note = document.createElement('div');
-  note.className = 'files-local-notice';
-  note.innerHTML = `Files 트리는 local 그대로 유지됩니다. <button class="close" type="button">&times;</button>`;
-  note.querySelector('.close').addEventListener('click', () => note.remove());
-  sec.prepend(note);
 }
 
 function esc(s) {

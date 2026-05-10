@@ -514,14 +514,25 @@ class WorkspaceStaticHandler(BaseHandler):
 class WorkspaceTreeHandler(BaseHandler):
     @web.authenticated
     def get(self):
-        workspace = self.get_workspace()
+        host = self.get_argument("host", "local")
         sub = self.get_argument("path", "")
-        if sub and not is_safe_path(workspace, sub):
-            raise web.HTTPError(400, "Invalid path")
-        target = (workspace / sub).resolve() if sub else workspace
-        if not target.is_dir():
-            raise web.HTTPError(404, "Directory not found")
-        tree = get_directory_listing(target, workspace)
+        if host == "local":
+            workspace = self.get_workspace()
+            if sub and not is_safe_path(workspace, sub):
+                raise web.HTTPError(400, "Invalid path")
+            target = (workspace / sub).resolve() if sub else workspace
+            if not target.is_dir():
+                raise web.HTTPError(404, "Directory not found")
+            self.json_response(get_directory_listing(target, workspace))
+            return
+        # Spec 3: SSH 원격 호스트 (~/.ssh/config 의 Host alias)
+        from . import ssh_fs
+        try:
+            tree = ssh_fs.list_dir(host, sub)
+        except ValueError as e:
+            raise web.HTTPError(400, str(e))
+        except RuntimeError as e:
+            raise web.HTTPError(502, "remote tree failed: %s" % e)
         self.json_response(tree)
 
 
