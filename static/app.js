@@ -40,71 +40,22 @@ safe('initSidebar', initSidebar);
 // §5.7 보존 모듈 초기화 ─────────────────────────────────────────────────────
 
 // openFileTab: finder / outer tree / 기타 모듈에서 파일 여는 공통 핸들러.
-// FileViewerInstance 가 아직 PDF/text/풀 인터랙션 미구현이므로 (spec 1
-// §5.4.2 미완), spec §5.7 "legacy 풀세트 보존" 정신에 따라 활성 'files' 탭의
-// legacy iframe 에 hash deep-link 로 위임. iframe 이 마운트 안 됐으면 새로
-// 만들고 load 직후 hash 설정.
+// **파일별 새 Files 탭** — contentRef = path (dedup key), displayName = basename
+// (탭 라벨). 같은 파일 다시 클릭하면 tab-store dedup 으로 기존 탭 활성화.
+// iframe 의 자동 복원 로직(onMountTab if tab.currentFile)이 새 탭 생성 직후
+// __cnOpenFile(path) 를 폴링 호출하므로 별도 폴링 코드 불필요.
 const openFileTab = (path) => {
-  // 1) 우선 순위:
-  //    a) 현재 활성 leaf 의 활성 탭이 'files' 면 그거 (사용자가 그 탭에서 작업 중)
-  //    b) 없으면 활성 leaf 의 첫 'files' 탭
-  //    c) 없으면 아무 leaf 의 첫 'files' 탭
-  //    d) 없으면 새로 만듦
+  const fname = path.split('/').pop() || path;
   const activeLeafId = layout.getActiveLeafId();
-  const activeLeaf = layout.getLeavesInVisualOrder().find(l => l.id === activeLeafId);
-  const activeTab = activeLeaf?.activeTabId ? tabStore.getTab(activeLeaf.activeTabId) : null;
-  let filesTab = (activeTab?.kind === 'files') ? activeTab : null;
-  if (!filesTab) filesTab = tabStore.tabsForLeaf(activeLeafId).find(t => t.kind === 'files');
-  if (!filesTab) filesTab = tabStore.getAllTabs().find(t => t.kind === 'files');
-  if (!filesTab) {
-    filesCount = Math.max(1, filesCount + 1);
-    const id = tabStore.openTab({ kind: 'files', contentRef: `Files ${filesCount}`, leafId: activeLeafId });
-    filesTab = tabStore.getTab(id);
-  }
-  layout.activateTab(filesTab.id);
-
-  // 2) iframe 의 legacy app 이 노출한 __cnOpenFile 직접 호출. hash 기반은
-  // legacy 의 onNavigate→updateHash('') 와 충돌해서 hash 가 즉시 비워지는
-  // 회귀가 있었음.
-  const tryInvoke = () => {
-    const ifr = document.querySelector(
-      `[data-tab-content-id="${filesTab.id}"] iframe[data-files-frame]`
-    );
-    if (!ifr || !ifr.contentWindow ||
-        !ifr.contentWindow.__cnReady ||
-        typeof ifr.contentWindow.__cnOpenFile !== 'function') {
-      return false;
-    }
-    try { ifr.contentWindow.__cnOpenFile(path); return true; } catch (_) { return false; }
-  };
-  if (tryInvoke()) return;
-  // iframe 아직 mount/load 전 — load 후 다시 시도. 최대 ~3초 폴링 후 실패하면
-  // 콘솔 + alert 로 가시화 (silent failure 방지 — codex round 4 권장).
-  requestAnimationFrame(() => {
-    if (tryInvoke()) return;
-    const ifr = document.querySelector(
-      `[data-tab-content-id="${filesTab.id}"] iframe[data-files-frame]`
-    );
-    if (!ifr) {
-      console.error('[openFileTab] iframe element not found for tab', filesTab.id);
-      return;
-    }
-    const onReady = () => {
-      let tries = 0;
-      const tick = () => {
-        if (tryInvoke()) return;
-        if (++tries > 30) {
-          // 3초 폴링 실패 — legacy app __cnOpenFile 노출 안 됨
-          console.error('[openFileTab] __cnOpenFile not exposed after iframe load — path:', path);
-          alert(`파일 열기 실패: legacy 페이지 초기화 미완. 새로고침 후 다시 시도해주세요. (${path})`);
-          return;
-        }
-        setTimeout(tick, 100);
-      };
-      setTimeout(tick, 100);
-    };
-    ifr.addEventListener('load', onReady, { once: true });
+  // openTab 은 같은 kind+contentRef 면 기존 id 반환 — 재클릭 시 활성화로 귀결.
+  const tabId = tabStore.openTab({
+    kind: 'files',
+    contentRef: path,
+    leafId: activeLeafId,
+    currentFile: path,
+    displayName: fname,
   });
+  layout.activateTab(tabId);
 };
 
 safe('initFinder', () => initFinder({ openFile: openFileTab, onNavigate: () => {} }));
@@ -353,7 +304,9 @@ window.addEventListener('message', (e) => {
         if (!tabId) break;
         const path = e.data.path;
         const fname = path.split('/').pop() || path;
-        tabStore.updateTab(tabId, { currentFile: path, contentRef: fname });
+        // dedup key (contentRef) 도 path 로 동기화 — iframe 내부 finder 로 파일
+        // 이동 시에도 outer 트리 재클릭과 dedup 일관성 유지 (Codex P1).
+        tabStore.updateTab(tabId, { currentFile: path, contentRef: path, displayName: fname });
         const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
         if (tabEl) {
           const nameEl = tabEl.querySelector('.tab-name');

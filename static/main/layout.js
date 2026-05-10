@@ -226,7 +226,7 @@ function render() {
           const closingIfr = closingContainer?.querySelector('iframe[data-files-frame]');
           let dirty = false;
           try { dirty = !!closingIfr?.contentWindow?.__cnIsDirty?.(); } catch (_) {}
-          if (dirty && !confirm(`"${t.contentRef}" 에 저장되지 않은 변경이 있습니다. 정말 닫으시겠습니까?`)) {
+          if (dirty && !confirm(`"${t.displayName || t.contentRef}" 에 저장되지 않은 변경이 있습니다. 정말 닫으시겠습니까?`)) {
             return;
           }
           tabStore.closeTab(t.id);
@@ -308,7 +308,7 @@ function render() {
           let dirty = false;
           try { dirty = !!srcIfr?.contentWindow?.__cnIsDirty?.(); } catch (_) {}
           if (dirty && !confirm(
-            `"${srcTab.contentRef}" 에 저장되지 않은 변경이 있습니다. ` +
+            `"${srcTab.displayName || srcTab.contentRef}" 에 저장되지 않은 변경이 있습니다. ` +
             '다른 패널로 옮기면 iframe 이 재로딩됩니다. 계속하시겠어요?'
           )) return;
         }

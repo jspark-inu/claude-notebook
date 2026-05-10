@@ -32,7 +32,7 @@ export function restoreFromStorage() {
 export function onChange(fn) { subs.push(fn); }
 function fire() { persist(); for (const fn of subs) fn(); }
 
-export function openTab({ kind, contentRef, leafId }) {
+export function openTab({ kind, contentRef, leafId, ...extra }) {
   // 같은 kind+contentRef 가 이미 어느 leaf 에든 열려있으면 거기서 활성화 (이동 X)
   // — 사용자가 사이드바 터미널 클릭 시 split 구조가 망가지지 않게.
   for (const t of tabs.values()) {
@@ -42,7 +42,9 @@ export function openTab({ kind, contentRef, leafId }) {
     }
   }
   const id = `tab-${nextTabId++}`;
-  tabs.set(id, { id, kind, contentRef, leafId });
+  // extra (currentFile, displayName 등) 는 생성 시점에 같이 설정해서 fire()
+  // 직후 mount-tab 핸들러가 그 값을 볼 수 있게 한다 (file-per-tab 케이스).
+  tabs.set(id, { id, kind, contentRef, leafId, ...extra });
   fire();
   return id;
 }
