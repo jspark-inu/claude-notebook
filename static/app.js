@@ -221,6 +221,23 @@ function onMountTab(e) {
     ifr.src = `${BASE}/legacy-terminal#${encodeURIComponent(tab.contentRef)}`;
     ifr.style.cssText = 'width:100%;height:100%;border:0;display:block;background:var(--bg)';
     hostEl.appendChild(ifr);
+    // F5 복원 시 tab.host 가 없으면 term-hosts 조회해서 라벨 갱신
+    if (!tab.host) {
+      fetch(`${BASE}/api/term-hosts`, { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : {})
+        .then(map => {
+          const host = map[tab.contentRef] || 'local';
+          tabStore.updateTab(tab.id, { host });
+          const tabEl = document.querySelector(`[data-tab-id="${tab.id}"]`);
+          if (tabEl) {
+            const nameEl = tabEl.querySelector('.tab-name');
+            const label = `Terminal ${tab.contentRef}` + (host && host !== 'local' ? ` · ${host}` : '');
+            if (nameEl) nameEl.textContent = label;
+            tabEl.title = label;
+          }
+        })
+        .catch(() => {});
+    }
     return;
   }
 
@@ -355,13 +372,21 @@ window.addEventListener('message', (e) => {
       if (ifr.contentWindow === e.source) {
         const tabId = ifr.dataset.tabId;
         if (!tabId) break;
-        tabStore.updateTab(tabId, { contentRef: name });
-        const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
-        if (tabEl) {
-          const nameEl = tabEl.querySelector('.tab-name');
-          if (nameEl) nameEl.textContent = `Terminal ${name}`;
-          tabEl.title = `Terminal ${name}`;
-        }
+        // host 도 함께 sync — 사용자 요청: 탭 라벨에 어떤 서버 터미널인지 표시
+        fetch(`${BASE}/api/term-hosts`, { credentials: 'same-origin' })
+          .then(r => r.ok ? r.json() : {})
+          .then(map => {
+            const host = map[name] || 'local';
+            tabStore.updateTab(tabId, { contentRef: name, host });
+            const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
+            if (tabEl) {
+              const nameEl = tabEl.querySelector('.tab-name');
+              const label = `Terminal ${name}` + (host && host !== 'local' ? ` · ${host}` : '');
+              if (nameEl) nameEl.textContent = label;
+              tabEl.title = label;
+            }
+          })
+          .catch(() => {});
         break;
       }
     }

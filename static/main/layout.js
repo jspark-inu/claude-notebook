@@ -201,11 +201,13 @@ function render() {
       tEl.className = 'tab' + (t.id === leaf.activeTabId ? ' active' : '');
       tEl.dataset.tabId = t.id;  // app.js 가 contentRef 변경 시 직접 DOM 업데이트
       tEl.innerHTML = '<span class="tab-name"></span><span class="tab-close" title="닫기">×</span>';
-      // 터미널 탭은 "Terminal N" 식으로 라벨 (그냥 N 만 나오면 너무 짧음).
-      // 사용자가 이름 바꾸면 displayName 우선.
+      // 터미널 탭은 "Terminal N · host" 식으로 라벨 (사용자 요청 — 어떤
+      // 서버 터미널인지 한 눈에). host=local 이면 호스트 부분 생략.
       let label;
       if (t.kind === 'term') {
-        label = t.displayName || `Terminal ${t.contentRef}`;
+        const base = t.displayName || `Terminal ${t.contentRef}`;
+        const host = t.host && t.host !== 'local' ? ` · ${t.host}` : '';
+        label = base + host;
       } else {
         label = t.displayName || t.contentRef;
       }
@@ -260,8 +262,10 @@ function render() {
           alert(`새 터미널 생성 실패 (${r.status}): ${txt.slice(0, 200)}`);
           return;
         }
-        const { name } = await r.json();
+        const { name, host_id } = await r.json();
         const tabId = tabStore.openTab({ kind: 'term', contentRef: name, leafId: leaf.id });
+        // 탭 라벨에 호스트 표시 — Terminal {name} · {host} (사용자 요청)
+        if (host_id) tabStore.updateTab(tabId, { host: host_id });
         leaf.activeTabId = tabId;
         state.activeLeafId = leaf.id;
         fire();
