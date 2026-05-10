@@ -15,6 +15,18 @@ CONTROL_PATH = "/tmp/cn-ssh-%r@%h:%p"
 SKIP_NAMES = {".git", "__pycache__", "node_modules", ".venv", ".pytest_cache"}
 
 
+def _validate_host(host_id):
+    """host_id 가 hosts.json 의 등록된 alias 인지 검증. 미등록이면 ValueError.
+
+    codex audit P1: 검증 없으면 임의 SSH 타겟으로 명령 실행 가능.
+    """
+    if not isinstance(host_id, str) or not host_id or host_id == "local":
+        raise ValueError(f"invalid host: {host_id!r}")
+    from .hosts import get_host
+    if get_host(host_id) is None:
+        raise ValueError(f"unknown host: {host_id!r}")
+
+
 def _ssh_base(host_id, timeout=30):
     """ssh 공통 옵션 — BatchMode (password prompt 차단) + ControlMaster."""
     return [
@@ -48,6 +60,7 @@ def list_dir(host_id, sub_path=""):
 
     Raises: ValueError (unsafe path), RuntimeError (ssh failure).
     """
+    _validate_host(host_id)
     sub = _safe_subpath(sub_path)
     # P0 fix (codex audit): shell quoting 만으로는 $(), backtick, \ 등 안전
     # 못 함. ssh 가 모든 args 를 remote shell 로 넘기므로, stdin script 로
@@ -121,6 +134,7 @@ def stat_file(host_id, sub_path):
 
     list_dir 처럼 sh -s + "$1" 로 path injection 차단.
     """
+    _validate_host(host_id)
     sub = _safe_subpath(sub_path)
     if not sub:
         raise ValueError("path required")
@@ -151,6 +165,7 @@ def stat_file(host_id, sub_path):
 
 def read_text(host_id, sub_path, max_size=_MAX_TEXT_PREVIEW):
     """원격 텍스트 파일 read. 큰 파일은 (None, size) 로 too_large 표시."""
+    _validate_host(host_id)
     info = stat_file(host_id, sub_path)
     if info is None:
         raise FileNotFoundError(sub_path)
@@ -185,6 +200,7 @@ def read_binary(host_id, sub_path, max_size=_MAX_BINARY_RAW):
     Returns: (bytes, stat_info).
     Raises: FileNotFoundError, RuntimeError(too large or ssh fail).
     """
+    _validate_host(host_id)
     info = stat_file(host_id, sub_path)
     if info is None:
         raise FileNotFoundError(sub_path)
@@ -213,6 +229,7 @@ def write_text(host_id, sub_path, content):
     sub_path 는 _safe_subpath 로 검증, content 는 ssh stdin 으로 직접 넘김
     → 어떤 binary/text 도 안전. 임시 파일 → mv 로 atomic.
     """
+    _validate_host(host_id)
     sub = _safe_subpath(sub_path)
     if not sub:
         raise ValueError("path required")
@@ -247,6 +264,7 @@ def upload_file(host_id, sub_dir, name, content_bytes):
 
     Returns: 업로드된 파일의 원격 절대 경로.
     """
+    _validate_host(host_id)
     sub = _safe_subpath(sub_dir or "")
     if "/" in name or "\x00" in name or name in ("", ".", ".."):
         raise ValueError(f"unsafe filename: {name!r}")
