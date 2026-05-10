@@ -304,7 +304,7 @@ const contentEl = document.getElementById('content');
         const content = getCurrentContent();
         if (content == null || content === getSavedBaseline()) return;
         try {
-            fetch(`${BASE}/api/save`, {
+            fetch(withHost(`${BASE}/api/save`), {
                 method: 'PUT',
                 credentials: 'same-origin',
                 keepalive: true,

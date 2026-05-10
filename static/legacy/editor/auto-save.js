@@ -114,7 +114,10 @@ export async function flushSave({ silent = false } = {}) {
     saveInFlight = true;
     if (!silent) setSaveStatus('saving');
     try {
-        const res = await fetch(`${BASE}/api/save`, mutFetchOpts({
+        // Spec 3-c: 현재 host 면 ?host= 추가
+        const _h = window.__HOST || window.__currentHostId;
+        const _hq = (_h && _h !== 'local') ? `?host=${encodeURIComponent(_h)}` : '';
+        const res = await fetch(`${BASE}/api/save${_hq}`, mutFetchOpts({
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path, content }),

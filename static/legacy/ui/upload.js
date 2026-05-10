@@ -159,7 +159,7 @@ async function uploadFiles(filesWithPaths, targetDir) {
                 } else {
                     const form = new FormData();
                     form.append('file', file, fname);
-                    const res = await fetch(`${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}`,
+                    const res = await fetch(`${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}${(window.__HOST||window.__currentHostId)&&(window.__HOST||window.__currentHostId)!=='local'?`&host=${encodeURIComponent(window.__HOST||window.__currentHostId)}`:''}`,
                         mutFetchOpts({ method: 'POST', body: form }));
                     if (!res.ok) throw new Error(await res.text());
                     bytesSent += file.size;
@@ -177,7 +177,7 @@ async function uploadFiles(filesWithPaths, targetDir) {
             await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 activeXhr = xhr;
-                xhr.open('POST', `${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}`);
+                xhr.open('POST', `${BASE}/api/upload?dir=${encodeURIComponent(targetDir || '')}${(window.__HOST||window.__currentHostId)&&(window.__HOST||window.__currentHostId)!=='local'?`&host=${encodeURIComponent(window.__HOST||window.__currentHostId)}`:''}`);
                 xhr.withCredentials = true;
                 xhr.setRequestHeader('X-XSRFToken', XSRF);
                 xhr.setRequestHeader('ngrok-skip-browser-warning', '1');

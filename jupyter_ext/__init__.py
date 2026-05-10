@@ -454,6 +454,7 @@ class LegacyTerminalHandler(BaseHandler):
         base_url = self.settings.get("base_url", "/").rstrip("/")
         viewer_base = base_url + "/claude-notebook"
         xsrf = self.get_xsrf_string()
+        host = self.get_argument("host", "local")  # Spec 3-c: terminal-upload host 분기용
         html = STATIC_DIR.joinpath("legacy/terminal.html").read_text(encoding="utf-8")
         # Path replace — copied from original WorkspaceTerminalHandler (lines 412–414)
         html = html.replace('href="terminal.css"',     f'href="{viewer_base}/static/terminal.css"')
@@ -463,6 +464,8 @@ class LegacyTerminalHandler(BaseHandler):
             html,
             __VIEWER_BASE=viewer_base,
             __JUPYTER_BASE=base_url,
+            __HOST=host,
+            __currentHostId=host,
             __XSRF_TOKEN=xsrf,
         )
         self.set_header("Content-Type", "text/html; charset=utf-8")
@@ -764,11 +767,27 @@ class WorkspaceXlsxHandler(BaseHandler):
 
 
 class WorkspaceUploadHandler(BaseHandler):
-    """Upload files to workspace."""
+    """Upload files to workspace. Spec 3-c: host-aware."""
     @web.authenticated
     def post(self):
-        workspace = self.get_workspace()
+        host = self.get_argument("host", "local")
         target_dir = self.get_argument("dir", "")
+        if host != "local":
+            from . import ssh_fs
+            uploaded = []
+            for field_name, file_list in self.request.files.items():
+                for f in file_list:
+                    raw_name = f["filename"]
+                    if not raw_name or "/" in raw_name or ".." in raw_name:
+                        continue  # nested upload 미지원 (PoC)
+                    try:
+                        path = ssh_fs.upload_file(host, target_dir, raw_name, f["body"])
+                        uploaded.append(path)
+                    except (ValueError, RuntimeError) as e:
+                        self.log.warning("remote upload skip %s: %s", raw_name, e)
+            self.json_response({"uploaded": uploaded, "host": host})
+            return
+        workspace = self.get_workspace()
         if target_dir and not is_safe_path(workspace, target_dir):
             raise web.HTTPError(400, "Invalid dir")
         dest = (workspace / target_dir).resolve() if target_dir else workspace
@@ -817,20 +836,30 @@ class WorkspaceDeleteHandler(BaseHandler):
 
 
 class WorkspaceSaveHandler(BaseHandler):
-    """Save (overwrite) a text file in the workspace."""
+    """Save (overwrite) a text file in the workspace. Spec 3-c: host-aware."""
     @web.authenticated
     def put(self):
-        workspace = self.get_workspace()
+        host = self.get_argument("host", "local")
         body = json.loads(self.request.body)
         file_path = body.get("path")
         content = body.get("content")
         if content is None:
             raise web.HTTPError(400, "content required")
+        if host != "local":
+            from . import ssh_fs
+            try:
+                ssh_fs.write_text(host, file_path, content)
+            except FileNotFoundError:
+                raise web.HTTPError(404, "Not found: %s" % file_path)
+            except ValueError as e:
+                raise web.HTTPError(400, str(e))
+            except RuntimeError as e:
+                raise web.HTTPError(502, "remote save failed: %s" % e)
+            self.json_response({"saved": file_path, "host": host})
+            return
         full_path = self.validate_path(file_path)
         if not full_path.is_file():
             raise web.HTTPError(404, "Not found: %s" % file_path)
-        # Snapshot the previous content before overwriting so the user can
-        # recover if auto-save commits something they didn't mean to keep.
         _take_snapshot(full_path)
         try:
             full_path.write_text(content, encoding="utf-8")
@@ -1173,9 +1202,30 @@ class ChunkedUploadHandler(BaseHandler):
 
 
 class TerminalUploadHandler(BaseHandler):
-    """Upload file to fixed dir for terminal use, return metadata."""
+    """Upload file to fixed dir for terminal use. Spec 3-c: host-aware."""
     @web.authenticated
     def post(self):
+        host = self.get_argument("host", "local")
+        if host != "local":
+            from . import ssh_fs
+            results = []
+            for field_name, file_list in self.request.files.items():
+                for f in file_list:
+                    fname = Path(f["filename"]).name
+                    if not fname: continue
+                    try:
+                        # 원격 $HOME/uploads/ 에 저장
+                        path = ssh_fs.upload_file(host, TERMINAL_UPLOAD_DIR, fname, f["body"])
+                        results.append({
+                            "name": Path(path).name,
+                            "path": path,
+                            "size": len(f["body"]),
+                            "content_type": f.get("content_type", "application/octet-stream"),
+                        })
+                    except (ValueError, RuntimeError) as e:
+                        self.log.warning("remote terminal upload skip %s: %s", fname, e)
+            self.json_response({"files": results, "host": host})
+            return
         workspace = self.get_workspace()
         upload_dir = workspace / TERMINAL_UPLOAD_DIR
         upload_dir.mkdir(exist_ok=True)

@@ -256,7 +256,9 @@ export class TerminalInstance {
     const xsrf = window.__XSRF_TOKEN || '';
     const form = new FormData();
     for (const f of fileList) form.append('file', f, f.name);
-    const res = await fetch(`${base}/api/terminal-upload`, {
+    const _h = window.__HOST || window.__currentHostId;
+    const _hp = (_h && _h !== 'local') ? `?host=${encodeURIComponent(_h)}` : '';
+    const res = await fetch(`${base}/api/terminal-upload${_hp}`, {
       method: 'POST', body: form, credentials: 'same-origin',
       headers: { 'X-XSRFToken': xsrf, 'ngrok-skip-browser-warning': '1' },
     });

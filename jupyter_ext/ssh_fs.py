@@ -174,3 +174,83 @@ def read_text(host_id, sub_path, max_size=_MAX_TEXT_PREVIEW):
         # binary file
         return None, info["size"]
 
+
+# Spec 3-c: 원격 파일 save / upload
+def write_text(host_id, sub_path, content):
+    """원격 텍스트 파일 atomic 저장 — content 는 stdin 으로 (argv 한도 회피).
+
+    sub_path 는 _safe_subpath 로 검증, content 는 ssh stdin 으로 직접 넘김
+    → 어떤 binary/text 도 안전. 임시 파일 → mv 로 atomic.
+    """
+    sub = _safe_subpath(sub_path)
+    if not sub:
+        raise ValueError("path required")
+    # ssh "sh -c 'script' _ arg1 arg2..." — name=_, $1=sub. content 는 stdin.
+    remote_cmd = (
+        'set -e; cd "$HOME"; '
+        'sub="$1"; '
+        'tmp="${sub}.cn-tmp.$$"; '
+        'cat > "$tmp"; '
+        'mv -f "$tmp" "$sub"'
+    )
+    # ssh 는 host 뒤 args 를 space-join 해서 remote shell 에 던짐 → 우리 args
+    # 의 quoting 손실. shlex.quote 로 한 줄로 묶어서 ssh 가 수정 못 하게.
+    remote_full = "sh -c " + shlex.quote(remote_cmd) + " _ " + shlex.quote(sub)
+    cmd = _ssh_base(host_id) + [remote_full]
+    try:
+        proc = subprocess.run(
+            cmd, input=content.encode("utf-8"),
+            capture_output=True, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("ssh save timeout")
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ssh save exit {proc.returncode}: "
+            f"{proc.stderr.decode('utf-8', 'replace')[:200]}"
+        )
+
+
+def upload_file(host_id, sub_dir, name, content_bytes):
+    """원격에 파일 업로드 — content 는 stdin (binary OK), unique naming.
+
+    Returns: 업로드된 파일의 원격 절대 경로.
+    """
+    sub = _safe_subpath(sub_dir or "")
+    if "/" in name or "\x00" in name or name in ("", ".", ".."):
+        raise ValueError(f"unsafe filename: {name!r}")
+    remote_cmd = (
+        'set -e; cd "$HOME"; '
+        'sub="$1"; orig="$2"; '
+        'if [ -n "$sub" ]; then mkdir -p "$sub" && cd "$sub"; fi; '
+        'name="$orig"; i=1; '
+        'while [ -e "$name" ]; do '
+        '  ext=""; base="$orig"; '
+        '  case "$orig" in *.*) ext=".${orig##*.}"; base="${orig%.*}";; esac; '
+        '  name="${base} (${i})${ext}"; '
+        '  i=$((i+1)); '
+        'done; '
+        'tmp=".${name}.cn-up.$$"; '
+        'cat > "$tmp"; '
+        'mv -f "$tmp" "$name"; '
+        'printf "%s" "$PWD/$name"'
+    )
+    remote_full = (
+        "sh -c " + shlex.quote(remote_cmd)
+        + " _ " + shlex.quote(sub) + " " + shlex.quote(name)
+    )
+    cmd = _ssh_base(host_id) + [remote_full]
+    try:
+        proc = subprocess.run(
+            cmd, input=content_bytes,
+            capture_output=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("ssh upload timeout")
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ssh upload exit {proc.returncode}: "
+            f"{proc.stderr.decode('utf-8', 'replace')[:200]}"
+        )
+    return proc.stdout.decode("utf-8", "replace").strip()
+

@@ -218,7 +218,10 @@ function onMountTab(e) {
     const ifr = document.createElement('iframe');
     ifr.dataset.termFrame = '1';
     ifr.dataset.tabId = tab.id;
-    ifr.src = `${BASE}/legacy-terminal#${encodeURIComponent(tab.contentRef)}`;
+    // Spec 3-c: host 전달 (terminal-upload 가 원격 uploads/ 로 가게)
+    const _h = window.__currentHostId || 'local';
+    const _hp = (_h && _h !== 'local') ? `?host=${encodeURIComponent(_h)}` : '';
+    ifr.src = `${BASE}/legacy-terminal${_hp}#${encodeURIComponent(tab.contentRef)}`;
     ifr.style.cssText = 'width:100%;height:100%;border:0;display:block;background:var(--bg)';
     hostEl.appendChild(ifr);
     // F5 복원 시 tab.host 가 없으면 term-hosts 조회해서 라벨 갱신
