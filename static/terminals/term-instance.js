@@ -143,10 +143,12 @@ export class TerminalInstance {
     try { this.socket?.close(); } catch (_) {}
     try { this._ro?.disconnect(); } catch (_) {}
     try { this.xterm?.dispose(); } catch (_) {}
+    try { this._dropOverlay?.remove(); } catch (_) {}
     this.dom = null;
     this.xterm = null;
     this.fitAddon = null;
     this.socket = null;
+    this._dropOverlay = null;
   }
 
   // ----- input bar -----
@@ -235,13 +237,12 @@ export class TerminalInstance {
     return res.json();
   }
 
-  // ----- upload (pending files + file input wiring) -----
-  attachUpload(fileInputEl, pendingContainerEl, attachBtnEl) {
+  // ----- upload (pending files + file input wiring + drag-drop) -----
+  attachUpload(fileInputEl, pendingContainerEl, attachBtnEl, dropZoneEl = null) {
     this._uploadCtrl?.abort();
     this._uploadCtrl = new AbortController();
     const sig = { signal: this._uploadCtrl.signal };
 
-    // Pending file list lives on the instance so attachInputBar can drain it
     if (!this._pendingFiles) this._pendingFiles = [];
 
     const render = () => {
@@ -275,7 +276,50 @@ export class TerminalInstance {
       render();
     }, sig);
 
-    // expose ref for attachInputBar
+    // Drag-drop: dropZone (보통 page 전체) 위로 drag 하면 visual feedback,
+    // drop 시 _pendingFiles 에 추가 (ChatGPT 스타일 — submit 시 자동 업로드 +
+    // path prepend).
+    if (dropZoneEl) {
+      let dragDepth = 0;  // dragenter/leave 가 자식 요소마다 발화하므로 카운터로 정확히 추적
+      const overlay = document.createElement('div');
+      overlay.className = 'drop-overlay';
+      overlay.innerHTML = '<div class="drop-overlay-msg">📎 파일을 놓으면 터미널 입력에 첨부됩니다</div>';
+      overlay.style.cssText =
+        'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;' +
+        'background:rgba(0,0,0,0.7);color:#fff;display:none;' +
+        'align-items:center;justify-content:center;font-size:18px;' +
+        'pointer-events:none;border:4px dashed rgba(255,255,255,0.7);';
+      document.body.appendChild(overlay);
+      const showOverlay = (s) => { overlay.style.display = s ? 'flex' : 'none'; };
+
+      dropZoneEl.addEventListener('dragenter', (e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        dragDepth++;
+        if (dragDepth === 1) showOverlay(true);
+      }, sig);
+      dropZoneEl.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }, sig);
+      dropZoneEl.addEventListener('dragleave', (e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) showOverlay(false);
+      }, sig);
+      dropZoneEl.addEventListener('drop', (e) => {
+        if (!e.dataTransfer?.files?.length) return;
+        e.preventDefault();
+        dragDepth = 0;
+        showOverlay(false);
+        for (const f of e.dataTransfer.files) this._pendingFiles.push(f);
+        render();
+      }, sig);
+      // dispose 시 overlay 도 제거
+      this._dropOverlay = overlay;
+    }
+
     this._pendingFilesRef = { list: this._pendingFiles, render };
   }
 

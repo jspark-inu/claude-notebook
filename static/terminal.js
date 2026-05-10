@@ -847,7 +847,8 @@ function connectTerminal(name) {
         const pendingCont5b = document.getElementById('termPendingFiles');
         const attachBtn5b = document.querySelector('.term-attach-btn');
         if (fileInput5b && pendingCont5b) {
-            currentInstance.attachUpload(fileInput5b, pendingCont5b, attachBtn5b);
+            // dropZone = document.body — iframe 어디든 drag-drop 가능 (ChatGPT 식)
+            currentInstance.attachUpload(fileInput5b, pendingCont5b, attachBtn5b, document.body);
         }
         currentInstance.attachInputBar(
             inputBar5b, sendBtn5b, inputField5b,
