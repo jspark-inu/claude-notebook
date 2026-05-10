@@ -400,7 +400,9 @@ const contentEl = document.getElementById('content');
             previewHistory.style.display = 'none';
 
             if (IMAGE_EXTS.includes(ext)) {
-                const imgUrl = `${BASE}/api/file?path=${encodeURIComponent(path)}`;
+                // withHost: SSH 원격 호스트 연결 시 ?host=<id> 를 붙여야 원격
+                // 파일을 받음. 미적용 시 로컬 서버로 가서 404 — 사용자 신고 버그.
+                const imgUrl = withHost(`${BASE}/api/file?path=${encodeURIComponent(path)}`);
                 const imgRes = await fetch(imgUrl, fetchOpts);
                 if (!imgRes.ok) throw new Error('Image load failed');
                 const blob = await imgRes.blob();
@@ -421,7 +423,7 @@ const contentEl = document.getElementById('content');
                 // after the MEDIA_CONTENT_TYPES change or the file will
                 // arrive as application/octet-stream and the browser will
                 // force-download no matter what tag we use.
-                const pdfUrl = `${BASE}/api/file?path=${encodeURIComponent(path)}&raw=1`;
+                const pdfUrl = withHost(`${BASE}/api/file?path=${encodeURIComponent(path)}&raw=1`);
                 const fname = parts[parts.length - 1];
                 previewBody.innerHTML =
                     `<object class="pdf-frame" data="${pdfUrl}" type="application/pdf">

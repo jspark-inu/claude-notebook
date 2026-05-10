@@ -8,7 +8,7 @@
  * (same styling family as the CSV viewer).
  */
 
-import { BASE, fetchOpts } from '../core/api.js';
+import { BASE, fetchOpts, withHost } from '../core/api.js';
 import { escHtml } from '../core/utils.js';
 
 export const XLSX_EXTS = ['.xlsx', '.xls'];
@@ -19,7 +19,7 @@ export async function renderXlsxViewer(filePath) {
     previewBody.innerHTML = '<div class="xlsx-loading">Loading…</div>';
     let data;
     try {
-        const res = await fetch(`${BASE}/api/xlsx?path=${encodeURIComponent(filePath)}`, fetchOpts);
+        const res = await fetch(withHost(`${BASE}/api/xlsx?path=${encodeURIComponent(filePath)}`), fetchOpts);
         if (!res.ok) throw new Error(await res.text());
         data = await res.json();
     } catch (err) {
