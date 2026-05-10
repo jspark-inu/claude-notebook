@@ -31,21 +31,12 @@ async function refresh() {
     if (!r.ok) return;
     const data = await r.json();
     hosts = data.hosts || [];
-    // Spec 3: URL ?host=<id> 로 진입한 경우 (또는 백엔드 inject __INITIAL_HOST)
-    // 그 host 를 우선 사용. 그 외엔 서버 저장 current_id.
+    // Spec 3: 각 chrome 탭 = 한 host. 서버측 current_id 는 이 모델에서
+    // 의미 없음 (다른 탭이 set 하면 잔여 영향). __INITIAL_HOST (URL ?host=)
+    // 만 사용, 없으면 'local'.
     const initial = window.__INITIAL_HOST;
-    currentId = (initial && initial.length) ? initial : (data.current_id || 'local');
+    currentId = (initial && initial.length) ? initial : 'local';
     window.__currentHostId = currentId;
-    // 서버 current_id 와 다르면 PUT 으로 sync (다음 refresh 에서 같은 값)
-    if (initial && initial !== data.current_id) {
-      try {
-        await fetch(`${BASE}/api/current_host`, mutFetchOpts({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: initial }),
-        }));
-      } catch (_) {}
-    }
   } catch (_) {}
 }
 
@@ -94,10 +85,17 @@ function openDD(dd) {
     // 사용자 선택 (A): 다른 host 클릭 시 새 chrome 탭 으로 열기.
     // 현 탭 = 한 host (이미 그 host 인 거 클릭은 noop).
     if (targetId !== currentId) {
-      const url = (targetId === 'local')
-        ? (BASE || '/claude-notebook')
-        : `${BASE || '/claude-notebook'}?host=${encodeURIComponent(targetId)}`;
-      window.open(url, '_blank', 'noopener');
+      // 항상 ?host=<id> 명시 (local 포함) — 그래야 새 탭이 우리가 클릭한
+      // host 그대로 boot, 서버측 current_id 잔여 영향 받지 않음.
+      const url = `${BASE || '/claude-notebook'}?host=${encodeURIComponent(targetId)}`;
+      // popup blocker 회피 — anchor 클릭 시뮬레이션 (가장 신뢰성 높음)
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       return;
     }
   }));
