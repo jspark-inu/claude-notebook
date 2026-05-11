@@ -636,7 +636,9 @@ function createXterm() {
             cyan: '#4ec9b0',
             white: '#d4d4d4',
         },
-        scrollback: 10000,
+        // tmux 가 history-limit=50000 으로 스크롤백을 들고 있어서 xterm 자체
+        // 는 작게 — reconnect 시 tmux 가 화면을 다시 그려준다.
+        scrollback: 500,
         smoothScrollDuration: 0,
         scrollOnUserInput: false,
         allowProposedApi: true,

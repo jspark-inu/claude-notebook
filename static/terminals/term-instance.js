@@ -41,7 +41,9 @@ export class TerminalInstance {
         cyan: '#4ec9b0',
         white: '#d4d4d4',
       },
-      scrollback: 10000,
+      // tmux 가 history-limit=50000 으로 스크롤백을 들고 있으므로 xterm 자체
+      // 버퍼는 500 줄 정도로 축소 — reload 시 tmux refresh 로 다시 채워짐.
+      scrollback: 500,
       smoothScrollDuration: 0,
       allowProposedApi: true,
     });
