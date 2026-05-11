@@ -1805,6 +1805,20 @@ function performBlockAction(editor, block, act) {
     scheduleSave();
 }
 
+// View/Edit mode toggle — 기본은 view (읽기 전용). 토글하면 contenteditable=true.
+// 모바일에서 클릭 한 번에 편집 모드로 들어가던 동작이 불편하다는 사용자 피드백.
+let _editEnabled = (() => {
+  try { return localStorage.getItem('cn-v2-md-edit-mode') === '1'; }
+  catch (_) { return false; }
+})();
+export function getEditEnabled() { return _editEnabled; }
+export function setEditEnabled(on) {
+    _editEnabled = !!on;
+    try { localStorage.setItem('cn-v2-md-edit-mode', on ? '1' : '0'); } catch (_) {}
+    const editor = document.querySelector('#previewBody .notion-editor');
+    if (editor) editor.setAttribute('contenteditable', on ? 'true' : 'false');
+}
+
 /** Wire a contenteditable markdown editor. */
 function setupNotionEditor(editor) {
     if (!editor) return;
@@ -1818,7 +1832,7 @@ function setupNotionEditor(editor) {
     }
     rehydrateImageResize(editor);
     rehydrateLinks(editor);
-    editor.setAttribute('contenteditable', 'true');
+    editor.setAttribute('contenteditable', _editEnabled ? 'true' : 'false');
     editor.setAttribute('spellcheck', 'false');
 
     // Click on any link inside the editor opens it in a new tab. Without
@@ -1882,6 +1896,16 @@ function setupNotionEditor(editor) {
     });
 
     editor.addEventListener('keydown', (e) => {
+        // View 모드일 땐 편집 단축키/슬래시 메뉴 등 모든 mutation 경로 차단.
+        // Escape / 화살표 같은 navigation 만 허용 — copy 는 contenteditable=false
+        // 에서도 native 동작으로 가능하므로 Cmd+C 도 통과시킨다.
+        if (!_editEnabled) {
+            const k = (e.key || '').toLowerCase();
+            const mod = e.ctrlKey || e.metaKey;
+            const navOk = ['arrowup','arrowdown','arrowleft','arrowright','pageup','pagedown','home','end','escape','tab'].includes(k);
+            const copyOk = mod && (k === 'c' || k === 'a');  // 복사 / 전체선택
+            if (!navOk && !copyOk) return;
+        }
         // Slash menu / emoji / mention pickers consume keys first
         if (_slashState && handleSlashMenuKey(e)) return;
         if (_emojiState && handleEmojiPickerKey(e)) return;
@@ -2055,6 +2079,8 @@ function setupNotionEditor(editor) {
     // right-click behaviour; mobile gets the native selection UI back.
     editor.addEventListener('contextmenu', (e) => {
         if (isMobile()) return;
+        // View 모드일 땐 블럭 변환 메뉴 안 뜸 (read-only)
+        if (!_editEnabled) return;
         const block = closestBlock(e.target, editor);
         if (!block) return;
         e.preventDefault();

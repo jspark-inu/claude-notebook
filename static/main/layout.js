@@ -1,6 +1,7 @@
 import * as tabStore from './tab-store.js';
 import { BASE, mutFetchOpts } from '../core/api.js';
 import { openTerminalInLeaf } from '../terminals/open-terminal.js';
+import { host as _h, layoutKey } from './persistence-ns.js';
 
 let nextLeafId = 1;
 const state = {
@@ -11,28 +12,47 @@ state.activeLeafId = state.leaves[0].id;
 
 let mountEl;
 const subs = [];
-// 각 chrome 탭마다 sessionStorage — 다중 탭 충돌 회피 (codex P1)
-const _h = (typeof window !== 'undefined' && window.__INITIAL_HOST) || 'local';
-const STORAGE_KEY = `cn-v2-layout-${_h}`;
-const _store = (typeof sessionStorage !== 'undefined') ? sessionStorage : localStorage;
+const _ss = (typeof sessionStorage !== 'undefined') ? sessionStorage : null;
+const _ls = (typeof localStorage   !== 'undefined') ? localStorage   : null;
+
+const STORAGE_KEY = layoutKey();
+const LEGACY_KEYS = [`cn-v2-layout-${_h}`];
+
+function _readKey(store, key) {
+  try { return store ? store.getItem(key) : null; } catch (_) { return null; }
+}
+
+const _persistStore = _ls || _ss;
 function persist() {
+  if (!_persistStore) return;
   try {
-    _store.setItem(STORAGE_KEY, JSON.stringify({
+    _persistStore.setItem(STORAGE_KEY, JSON.stringify({
       leaves: state.leaves,
       activeLeafId: state.activeLeafId,
       nextLeafId,
+      _ts: Date.now(),
     }));
   } catch (_) {}
 }
+
 export function restoreFromStorage() {
+  // persistence-ns 가 같은 chromeTabId 로 STORAGE_KEY 를 정해뒀으므로 tab-store
+  // 와 같은 namespace 의 snapshot 을 읽는다 → tab leafId / layout leafId 일치 보장.
+  let raw = _readKey(_ls, STORAGE_KEY) || _readKey(_ss, STORAGE_KEY);
+  if (!raw) {
+    for (const k of LEGACY_KEYS) {
+      raw = _readKey(_ss, k) || _readKey(_ls, k);
+      if (raw) break;
+    }
+  }
+  if (!raw) return false;
   try {
-    const raw = _store.getItem(STORAGE_KEY);
-    if (!raw) return false;
     const o = JSON.parse(raw);
     if (!o || !Array.isArray(o.leaves) || o.leaves.length === 0) return false;
     state.leaves = o.leaves;
     state.activeLeafId = o.activeLeafId || o.leaves[0].id;
     if (o.nextLeafId) nextLeafId = o.nextLeafId;
+    persist();
     return true;
   } catch (_) { return false; }
 }

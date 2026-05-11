@@ -1010,6 +1010,48 @@ html, body {
     .vkb-toggle-btn {
         display: flex;
     }
+
+    /* === Mobile: chunkier scrollbars (touch targets) === */
+    /* 1) General webkit scrollbars — wider + more visible thumb */
+    *::-webkit-scrollbar {
+        width: 14px;
+        height: 14px;
+    }
+    *::-webkit-scrollbar-thumb {
+        background: rgba(55, 53, 47, 0.38);
+        background-clip: content-box;
+        border: 3px solid transparent;
+    }
+    [data-theme="dark"] *::-webkit-scrollbar-thumb {
+        background: rgba(212, 212, 212, 0.42);
+        background-clip: content-box;
+    }
+    * {
+        scrollbar-width: auto;
+    }
+
+    /* 2) Terminal custom scrollbar — wider column + bigger thumb */
+    .custom-scrollbar {
+        width: 24px;
+    }
+    .custom-scrollbar-track {
+        left: 3px; right: 3px;
+        border-radius: 8px;
+    }
+    .custom-scrollbar-thumb {
+        left: 3px; right: 3px;
+        min-height: 56px;
+        border-radius: 8px;
+        background: #aaa;
+    }
+    .custom-scrollbar-thumb:hover,
+    .custom-scrollbar-thumb.dragging {
+        background: #ddd;
+    }
+    /* Terminal padding adjusts to the wider scrollbar column */
+    #terminalContainer {
+        padding-right: 4px;
+    }
 }
 
 /* ============================================================

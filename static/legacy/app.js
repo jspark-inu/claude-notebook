@@ -33,6 +33,8 @@ import {
     initNotion,
     setupNotionEditor,
     rehydrateTaskCheckboxes,
+    getEditEnabled,
+    setEditEnabled,
 } from './editor/notion.js';
 import { domToMarkdown } from './editor/markdown.js';
 import { initHistoryModal } from './ui/history-modal.js';
@@ -73,6 +75,7 @@ const contentEl = document.getElementById('content');
     const previewDownload = document.getElementById('previewDownload');
     const previewStatus = document.getElementById('previewStatus');
     const previewViewToggle = document.getElementById('previewViewToggle');
+    const previewEditToggle = document.getElementById('previewEditToggle');
     const previewHistory = document.getElementById('previewHistory');
     const previewHelp = document.getElementById('previewHelp');
     const previewColorRules = document.getElementById('previewColorRules');
@@ -151,6 +154,10 @@ const contentEl = document.getElementById('content');
             previewViewToggle.textContent = 'Text';
             previewViewToggle.title = 'Switch to plain text view';
         }
+        if (previewEditToggle) {
+            previewEditToggle.style.display = 'none';
+            applyEditToggleLabel();
+        }
         previewColorRules.style.display = 'none';
         loadPreviewContent(path);
         updateHash(path);
@@ -177,12 +184,30 @@ const contentEl = document.getElementById('content');
             previewViewToggle.textContent = 'Text';
             previewViewToggle.title = 'Switch to plain text view';
         }
+        if (previewEditToggle) previewEditToggle.style.display = 'none';
         previewColorRules.style.display = 'none';
         setSaveStatus('idle');
         updateHash(getFinderDir());
         const folderName = getFinderDir().split('/').pop() || 'Workspace';
         document.title = folderName + ' - Claude Notebook';
     }
+    function applyEditToggleLabel() {
+        if (!previewEditToggle) return;
+        const on = getEditEnabled();
+        previewEditToggle.textContent = on ? '👁 View' : '✏️ Edit';
+        previewEditToggle.title = on ? '읽기 전용 보기로 전환' : '편집 모드로 전환';
+        previewEditToggle.classList.toggle('preview-edit-active', on);
+    }
+    if (previewEditToggle) {
+        previewEditToggle.addEventListener('click', () => {
+            setEditEnabled(!getEditEnabled());
+            applyEditToggleLabel();
+            // file-raw (code/text) 의 경우: edit 모드에서만 클릭→inline 편집 허용
+            // 실제 textarea 진입은 attachClickToEdit 의 핸들러가 _editEnabled
+            // 를 보고 결정한다.
+        });
+    }
+
     previewClose.addEventListener('click', closePreviewFn);
     if (previewUp) {
         previewUp.addEventListener('click', async () => {
@@ -335,6 +360,9 @@ const contentEl = document.getElementById('content');
 
     async function renderPreviewMode(data) {
         isInlineEditing = false;
+        // 매 renderPreviewMode 마다 edit 토글을 우선 숨김 — MD / EDITABLE_EXTS 분기에서만
+        // 다시 보인다. (CSV/timetable/PDF 등은 toggle 무관)
+        if (previewEditToggle) previewEditToggle.style.display = 'none';
         const isCsv = CSV_EXTS.includes(data.extension);
         previewBody.classList.toggle('csv-mode', isCsv);
         previewColorRules.style.display = isCsv ? '' : 'none';
@@ -370,12 +398,20 @@ const contentEl = document.getElementById('content');
                 previewViewToggle.textContent = 'Text';
                 previewViewToggle.title = 'Switch to plain text view';
             }
+            if (previewEditToggle) {
+                previewEditToggle.style.display = '';
+                applyEditToggleLabel();
+            }
             // Use the serialized form as baseline so no-op opens don't dirty
             // the file just because the round-trip isn't byte-identical.
             setSavedBaseline(domToMarkdown(editor));
         } else if (EDITABLE_EXTS.includes(data.extension)) {
             previewBody.innerHTML = `<pre class="file-raw editable-hint">${escHtml(data.content)}</pre>`;
             attachClickToEdit(previewBody.querySelector('.file-raw'));
+            if (previewEditToggle) {
+                previewEditToggle.style.display = '';
+                applyEditToggleLabel();
+            }
         } else {
             previewBody.innerHTML = `<pre class="file-raw">${escHtml(data.content)}</pre>`;
         }
@@ -387,6 +423,9 @@ const contentEl = document.getElementById('content');
     function attachClickToEdit(el) {
         if (!el) return;
         el.addEventListener('click', (e) => {
+            // 편집 모드가 꺼져있으면 클릭으로 inline 편집 진입 금지 — 모바일에서
+            // 그냥 읽기만 할 때 자꾸 textarea 가 떠서 불편하다는 피드백.
+            if (!getEditEnabled()) return;
             // Don't hijack clicks on links — let them navigate normally
             if (e.target.closest('a')) return;
             const rect = previewBody.getBoundingClientRect();
