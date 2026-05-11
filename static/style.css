@@ -401,6 +401,18 @@ button:focus-visible,
 .finder-breadcrumb span:hover { background: var(--sidebar-hover); color: var(--text); }
 .finder-breadcrumb .sep { cursor: default; color: var(--text-secondary); }
 .finder-breadcrumb .sep:hover { background: none; }
+.finder-breadcrumb .finder-up-btn {
+    background: var(--sidebar-hover);
+    border: 1px solid var(--border);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px 8px;
+    margin-right: 6px;
+    border-radius: 6px;
+}
+.finder-breadcrumb .finder-up-btn:hover { background: var(--accent); color: #fff; }
 .finder-actions {
     display: flex;
     align-items: center;
@@ -525,6 +537,19 @@ button:focus-visible,
 .finder-item-icon svg {
     width: 40px;
     height: 40px;
+}
+.finder-item-icon { position: relative; }
+.finder-item-icon .finder-pin-badge {
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    font-size: 14px;
+    line-height: 1;
+}
+.finder-detail-row .finder-pin-badge {
+    font-size: 12px;
+    margin-left: 4px;
+    opacity: 0.85;
 }
 .fd-icon {
     display: inline-flex;

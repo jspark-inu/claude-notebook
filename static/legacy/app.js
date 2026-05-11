@@ -69,6 +69,7 @@ const contentEl = document.getElementById('content');
     const previewBody = document.getElementById('previewBody');
     const previewBreadcrumb = document.getElementById('previewBreadcrumb');
     const previewClose = document.getElementById('previewClose');
+    const previewUp = document.getElementById('previewUp');
     const previewDownload = document.getElementById('previewDownload');
     const previewStatus = document.getElementById('previewStatus');
     const previewViewToggle = document.getElementById('previewViewToggle');
@@ -183,6 +184,15 @@ const contentEl = document.getElementById('content');
         document.title = folderName + ' - Claude Notebook';
     }
     previewClose.addEventListener('click', closePreviewFn);
+    if (previewUp) {
+        previewUp.addEventListener('click', async () => {
+            const path = currentPreviewPath;
+            const parts = path ? path.split('/') : [];
+            const parentDir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+            await closePreviewFn();
+            loadFinderGrid(parentDir);
+        });
+    }
     previewDownload.addEventListener('click', () => { if (currentPreviewPath) downloadFile(currentPreviewPath); });
 
     // ========== AUTO-SAVE STATE MACHINE ==========

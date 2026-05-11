@@ -39,6 +39,29 @@ let viewMode       = localStorage.getItem('finderViewMode') || 'grid'; // 'grid'
 let detailSortKey  = 'name';
 let detailSortDesc = false;
 
+// ---------- Pinned folders (persisted in localStorage) ----------
+
+const PIN_STORAGE_KEY = 'finderPinnedPaths';
+
+function loadPinned() {
+    try {
+        const raw = localStorage.getItem(PIN_STORAGE_KEY);
+        return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+}
+let pinnedPaths = loadPinned();
+
+function savePinned() {
+    localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify([...pinnedPaths]));
+}
+function isPinned(path) { return pinnedPaths.has(path); }
+function togglePin(path) {
+    if (pinnedPaths.has(path)) pinnedPaths.delete(path);
+    else                       pinnedPaths.add(path);
+    savePinned();
+    loadFinderGrid(currentFinderPath);
+}
+
 // ---------- Selection ----------
 
 export function clearSelection() {
@@ -94,7 +117,14 @@ function renameItem(item)  { return renameItemApi(item, refreshWorkspaceViews); 
 
 function sortItems(items) {
     const dirFirst = (a, b) => (a.type !== b.type) ? (a.type === 'directory' ? -1 : 1) : 0;
+    const pinFirst = (a, b) => {
+        const pa = isPinned(a.path) ? 1 : 0;
+        const pb = isPinned(b.path) ? 1 : 0;
+        return pb - pa;
+    };
     items.sort((a, b) => {
+        const p = pinFirst(a, b);
+        if (p !== 0) return p;
         const d = dirFirst(a, b);
         if (d !== 0) return d;
         let cmp = 0;
@@ -145,6 +175,39 @@ function attachItemEvents(el, item, idx) {
             showContextMenu(e.clientX, e.clientY, item);
         }
     });
+
+    // ---- Touch long-press → context menu (mobile) ----
+    let lpTimer = null;
+    let lpStartX = 0, lpStartY = 0;
+    let lpFired = false;
+    const lpClear = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+    el.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        const t = e.touches[0];
+        lpStartX = t.clientX; lpStartY = t.clientY;
+        lpFired = false;
+        lpClear();
+        lpTimer = setTimeout(() => {
+            lpFired = true;
+            if (navigator.vibrate) navigator.vibrate(30);
+            if (selectedPaths.size > 1 && selectedPaths.has(item.path)) {
+                showMultiContextMenu(lpStartX, lpStartY);
+            } else {
+                clearSelection();
+                showContextMenu(lpStartX, lpStartY, item);
+            }
+        }, 500);
+    }, { passive: true });
+    el.addEventListener('touchmove', (e) => {
+        if (!lpTimer) return;
+        const t = e.touches[0];
+        if (Math.abs(t.clientX - lpStartX) > 10 || Math.abs(t.clientY - lpStartY) > 10) lpClear();
+    }, { passive: true });
+    el.addEventListener('touchend', (e) => {
+        lpClear();
+        if (lpFired) { e.preventDefault(); }
+    });
+    el.addEventListener('touchcancel', lpClear);
 }
 
 function renderGridView(items) {
@@ -158,7 +221,8 @@ function renderGridView(items) {
         el.dataset.name  = item.name;
         el.dataset.index = idx;
         const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
-        el.innerHTML = `<div class="finder-item-icon">${icon}</div><div class="finder-item-name">${escHtml(item.name)}</div>`;
+        const pinBadge = isPinned(item.path) ? '<span class="finder-pin-badge">📌</span>' : '';
+        el.innerHTML = `<div class="finder-item-icon">${icon}${pinBadge}</div><div class="finder-item-name">${escHtml(item.name)}</div>`;
         attachItemEvents(el, item, idx);
         finderGrid.appendChild(el);
     });
@@ -182,8 +246,9 @@ function renderDetailView(items) {
         row.dataset.name  = item.name;
         row.dataset.index = idx;
         const icon = item.type === 'directory' ? '📁' : getFileIcon(item.name);
+        const pinMark = isPinned(item.path) ? ' <span class="finder-pin-badge">📌</span>' : '';
         row.innerHTML = `
-            <div class="fd-col fd-col-name"><span class="fd-icon">${icon}</span><span class="fd-name">${escHtml(item.name)}</span></div>
+            <div class="fd-col fd-col-name"><span class="fd-icon">${icon}</span><span class="fd-name">${escHtml(item.name)}${pinMark}</span></div>
             <div class="fd-col fd-col-mtime">${formatMtime(item.mtime)}</div>
             <div class="fd-col fd-col-type">${fileTypeLabel(item)}</div>
             <div class="fd-col fd-col-size">${item.type === 'directory' ? '' : formatFileSize(item.size)}</div>
@@ -230,7 +295,11 @@ export function getCurrentDir() { return currentFinderPath; }
 
 function updateFinderBreadcrumb(dirPath) {
     const parts = dirPath ? dirPath.split('/') : [];
-    let html = '<span data-path="">Workspace</span>';
+    const parentPath = parts.length > 0 ? parts.slice(0, -1).join('/') : null;
+    const upBtn = parentPath !== null
+        ? `<button class="finder-up-btn" data-parent="${escHtml(parentPath)}" title="상위 폴더로 이동">⬆</button>`
+        : '';
+    let html = upBtn + '<span data-path="">Workspace</span>';
     let accumulated = '';
     parts.forEach((p) => {
         accumulated += (accumulated ? '/' : '') + p;
@@ -240,6 +309,8 @@ function updateFinderBreadcrumb(dirPath) {
     finderBreadcrumb.querySelectorAll('span[data-path]').forEach((el) => {
         el.addEventListener('click', () => loadFinderGrid(el.dataset.path));
     });
+    const upEl = finderBreadcrumb.querySelector('.finder-up-btn');
+    if (upEl) upEl.addEventListener('click', () => loadFinderGrid(upEl.dataset.parent));
 }
 
 // ---------- View toggle ----------
@@ -367,11 +438,19 @@ function buildContextMenu(x, y, actions) {
 }
 
 function showContextMenu(x, y, item) {
-    buildContextMenu(x, y, [
+    const actions = [];
+    if (item.type === 'directory') {
+        actions.push({
+            label: isPinned(item.path) ? '📌 위 고정 해제' : '📌 위로 고정',
+            action: () => togglePin(item.path),
+        });
+    }
+    actions.push(
         { label: '✏️ Rename',   action: () => renameItem(item) },
         { label: '📥 Download', action: () => downloadFile(item.path) },
         { label: '🗑 Delete',   cls: 'danger', action: () => deleteItem(item) },
-    ]);
+    );
+    buildContextMenu(x, y, actions);
 }
 
 function showMultiContextMenu(x, y) {

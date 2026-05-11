@@ -252,11 +252,17 @@ function readEntryRecursive(entry, counter) {
 async function collectDroppedFiles(dataTransfer) {
     const items = dataTransfer.items;
     if (items && items.length && items[0].webkitGetAsEntry) {
-        const allFiles = [];
-        const counter = { count: 0 };
+        // DataTransferItemList detaches after the first await tick, so
+        // grab every entry synchronously before any async work.
+        const entries = [];
         for (let i = 0; i < items.length; i++) {
             const entry = items[i].webkitGetAsEntry();
-            if (entry) allFiles.push(...await readEntryRecursive(entry, counter));
+            if (entry) entries.push(entry);
+        }
+        const allFiles = [];
+        const counter = { count: 0 };
+        for (const entry of entries) {
+            allFiles.push(...await readEntryRecursive(entry, counter));
             if (counter.count > MAX_UPLOAD_FILES) {
                 alert(`파일 수가 ${counter.count.toLocaleString()}개를 초과했습니다.\n브라우저 업로드는 최대 ${MAX_UPLOAD_FILES.toLocaleString()}개까지 지원됩니다.\n대용량 폴더는 서버에서 직접 복사해주세요.`);
                 return [];

@@ -41,6 +41,28 @@ const configConfirmBtn = document.getElementById('configConfirmBtn');
 let currentTerm = null;
 let currentWs = null;
 let currentName = null;
+let manualDisconnect = false;       // true when user/code called disconnect() on purpose
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+const RECONNECT_MAX_DELAY = 10000;  // 10s ceiling
+
+function clearReconnectTimer() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+}
+
+function scheduleReconnect() {
+    if (manualDisconnect || !currentName) return;
+    clearReconnectTimer();
+    // 0.5s → 1s → 2s → 4s → 8s → 10s (capped)
+    const delay = Math.min(500 * Math.pow(2, reconnectAttempts), RECONNECT_MAX_DELAY);
+    reconnectAttempts++;
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (manualDisconnect || !currentName) return;
+        // Re-open WS only — keep xterm instance + DOM intact
+        try { setupWebSocket(currentName); } catch (_) { scheduleReconnect(); }
+    }, delay);
+}
 let currentDisplayName = null;
 let fitAddon = null;
 let terminalData = {};  // name -> {display_name, last_activity}
@@ -719,37 +741,54 @@ function setupScrollLock(viewport) {
 
 function setupWebSocket(name) {
     const wsUrl = WS_BASE + JUPYTER + '/terminals/websocket/' + name;
-    currentWs = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
+    currentWs = ws;
 
-    currentWs.onopen = () => {
+    // All handlers gate on `ws === currentWs` so that a stale socket
+    // (already replaced by disconnect()/connectTerminal()) cannot trigger
+    // reconnect or write into the active terminal.
+    ws.onopen = () => {
+        if (ws !== currentWs) return;
         statusDot.classList.remove('disconnected');
-        const dims = fitAddon.proposeDimensions();
-        if (dims) {
-            currentWs.send(JSON.stringify(["set_size", dims.rows, dims.cols]));
-        }
+        reconnectAttempts = 0;
+        clearReconnectTimer();
+        const dims = fitAddon && fitAddon.proposeDimensions();
+        if (dims) ws.send(JSON.stringify(["set_size", dims.rows, dims.cols]));
     };
 
-    currentWs.onmessage = (event) => {
+    ws.onmessage = (event) => {
+        if (ws !== currentWs) return;
         try {
             const msg = JSON.parse(event.data);
             if (msg[0] === 'stdout') {
-                currentTerm.write(msg[1]);
+                if (currentTerm) currentTerm.write(msg[1]);
             } else if (msg[0] === 'disconnect') {
                 statusDot.classList.add('disconnected');
+                scheduleReconnect();
             }
         } catch (e) {}
     };
 
-    currentWs.onclose = () => {
+    ws.onclose = () => {
+        if (ws !== currentWs) return;   // stale socket from a prior session — ignore
         statusDot.classList.add('disconnected');
+        scheduleReconnect();
     };
 
-    currentWs.onerror = () => {
+    ws.onerror = () => {
+        if (ws !== currentWs) return;
         statusDot.classList.add('disconnected');
+        // onclose fires next — let it schedule the retry to avoid double-scheduling
     };
+}
 
-    // Send input character by character
-    currentTerm.onData((data) => {
+// Bound once per xterm instance — reconnects must not re-register this or
+// every keystroke gets sent N times.
+let termInputDisposable = null;
+function bindTerminalInput() {
+    if (!currentTerm) return;
+    if (termInputDisposable) { try { termInputDisposable.dispose(); } catch (_) {} termInputDisposable = null; }
+    termInputDisposable = currentTerm.onData((data) => {
         if (currentWs && currentWs.readyState === WebSocket.OPEN) {
             currentWs.send(JSON.stringify(["stdin", data]));
         }
@@ -801,6 +840,8 @@ function setupResizeObserver() {
 // Connect to terminal — orchestrator
 function connectTerminal(name) {
     disconnect();
+    manualDisconnect = false;   // re-enable auto-reconnect for the new session
+    reconnectAttempts = 0;
     if (selectMode) hideSelectOverlay();
     currentName = name;
     currentDisplayName = getDisplayName(terminalData[name] || {name: name});
@@ -860,13 +901,24 @@ function connectTerminal(name) {
     }, 50);
 
     setupWebSocket(name);
+    bindTerminalInput();
     setupResizeObserver();
 }
 
 function disconnect() {
+    manualDisconnect = true;
+    clearReconnectTimer();
+    reconnectAttempts = 0;
     if (currentWs) {
-        currentWs.close();
+        // Detach handlers before close() so any late-firing onclose from this
+        // stale socket cannot schedule a reconnect or write into the new term.
+        currentWs.onopen = currentWs.onmessage = currentWs.onclose = currentWs.onerror = null;
+        try { currentWs.close(); } catch (_) {}
         currentWs = null;
+    }
+    if (termInputDisposable) {
+        try { termInputDisposable.dispose(); } catch (_) {}
+        termInputDisposable = null;
     }
     if (removeNativeMobileTouchScroll) {
         removeNativeMobileTouchScroll();
@@ -1689,5 +1741,29 @@ loadTerminalOrder();
 loadTerminals().then(() => connectFromHash());
 setInterval(loadTerminals, 10000);
 window.addEventListener('hashchange', connectFromHash);
+
+// Reconnect quickly when the page becomes visible again or network comes back —
+// mobile browsers kill WebSockets aggressively in the background, otherwise the
+// terminal sits with a red dot until the user taps reconnect.
+function nudgeReconnect() {
+    if (!currentName || manualDisconnect) return;
+    if (!currentWs || currentWs.readyState === WebSocket.CLOSED || currentWs.readyState === WebSocket.CLOSING) {
+        reconnectAttempts = 0;
+        clearReconnectTimer();
+        // Detach any lingering stale socket before opening a fresh one.
+        if (currentWs) {
+            currentWs.onopen = currentWs.onmessage = currentWs.onclose = currentWs.onerror = null;
+            try { currentWs.close(); } catch (_) {}
+            currentWs = null;
+        }
+        try { setupWebSocket(currentName); } catch (_) { scheduleReconnect(); }
+    }
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') nudgeReconnect();
+});
+window.addEventListener('online',  nudgeReconnect);
+window.addEventListener('focus',   nudgeReconnect);
+window.addEventListener('pageshow', nudgeReconnect);
 
 })();
