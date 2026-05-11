@@ -43,7 +43,6 @@ let currentWs = null;
 let currentName = null;
 let currentDisplayName = null;
 let fitAddon = null;
-let currentInstance = null;  // TerminalInstance (task5a+)
 let terminalData = {};  // name -> {display_name, last_activity}
 let chatMode = false;
 
@@ -68,6 +67,7 @@ const scrollThumb = document.getElementById('customScrollThumb');
 let scrollDragging = false;
 let scrollDragStartY = 0;
 let scrollDragStartTop = 0;
+let removeNativeMobileTouchScroll = null;
 
 // Terminal list render cache
 let lastRenderKey = '';
@@ -616,50 +616,104 @@ function createXterm() {
         },
         scrollback: 10000,
         smoothScrollDuration: 0,
+        scrollOnUserInput: false,
         allowProposedApi: true,
     });
     return term;
 }
 
-function setupScrollLock(viewport) {
-    let followMode = true;  // true = auto-scroll to bottom
+function installMobileTouchScroll(viewport) {
+    // Why this exists:
+    //   xterm.js Viewport._innerRefresh forces viewport.scrollTop = ydisp*rowHeight
+    //   after every write. On mobile, the native touch scroll path
+    //   (scrollTop changes via finger + momentum) races with this sync,
+    //   so high-frequency TUI output (Claude Code's thinking timer) keeps
+    //   yanking the view to bottom. The fix is to bypass native scrollTop
+    //   entirely and drive ydisp directly via Terminal.scrollLines(), which
+    //   synchronously sets xterm's isUserScrolling flag and prevents the
+    //   refresh from snapping back.
+    let touchActive = false;
+    let lastY = 0;
+    let partialLines = 0;
+    let cachedRowHeight = 0;
 
-    viewport.style.overflowAnchor = 'none';
-
-    // Simple scroll-lock: track whether user has scrolled up
-    function isAtBottom() {
-        return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 30;
+    function getRowHeight() {
+        if (cachedRowHeight > 0) return cachedRowHeight;
+        const rowEl = viewport.querySelector('.xterm-rows > div');
+        if (rowEl) {
+            const h = rowEl.getBoundingClientRect().height;
+            if (h > 0) { cachedRowHeight = h; return h; }
+        }
+        return 20;
     }
 
-    // Scroll up -> lock (stop auto-scroll), scroll to bottom -> unlock
-    viewport.addEventListener('wheel', (e) => {
-        if (e.deltaY < 0) followMode = false;
-        setTimeout(() => {
-            if (isAtBottom()) followMode = true;
+    function onTouchStart(ev) {
+        if (!currentTerm || !ev.touches || ev.touches.length !== 1) return;
+        touchActive = true;
+        lastY = ev.touches[0].clientY;
+        partialLines = 0;
+        // Prevent xterm's own touch handler (on .xterm ancestor) from
+        // running its scrollTop-based path concurrently.
+        ev.stopImmediatePropagation();
+    }
+
+    function onTouchMove(ev) {
+        if (!touchActive || !currentTerm || !ev.touches || ev.touches.length !== 1) return;
+        const y = ev.touches[0].clientY;
+        const deltaY = lastY - y;
+        lastY = y;
+        if (deltaY === 0) return;
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        const rowHeight = getRowHeight();
+        partialLines += deltaY / rowHeight;
+        const lines = partialLines > 0 ? Math.floor(partialLines) : Math.ceil(partialLines);
+        if (lines !== 0) {
+            currentTerm.scrollLines(lines);
+            partialLines -= lines;
             updateScrollbar();
-        }, 50);
-    }, { passive: true });
-
-    viewport.addEventListener('touchmove', () => {
-        setTimeout(() => {
-            followMode = isAtBottom();
-            updateScrollbar();
-        }, 100);
-    }, { passive: true });
-
-    viewport.addEventListener('scroll', () => { updateScrollbar(); });
-
-    // Auto-scroll to bottom on new content when following
-    currentTerm.onWriteParsed(() => {
-        if (followMode) {
-            viewport.scrollTop = viewport.scrollHeight;
         }
-        updateScrollbar();
-    });
+    }
 
-    // Initial: scroll to bottom
-    followMode = true;
-    viewport.scrollTop = viewport.scrollHeight;
+    function onTouchEnd() {
+        touchActive = false;
+        partialLines = 0;
+    }
+
+    // Attach to .xterm root element, NOT .xterm-viewport. xterm.js binds
+    // its native touch handlers to .xterm in Terminal.bindMouse(), so
+    // capture-phase listeners here fire BEFORE xterm's and our
+    // stopImmediatePropagation actually blocks them. Listening on
+    // .xterm-viewport (a child) was the original bug — different element,
+    // can't stopImmediatePropagation across element boundaries.
+    const xtermRoot = viewport.closest('.xterm') || viewport.parentElement;
+    const target = xtermRoot || viewport;
+    target.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    target.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+    target.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+    target.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
+
+    return () => {
+        target.removeEventListener('touchstart', onTouchStart, true);
+        target.removeEventListener('touchmove', onTouchMove, true);
+        target.removeEventListener('touchend', onTouchEnd, true);
+        target.removeEventListener('touchcancel', onTouchEnd, true);
+    };
+}
+
+function setupScrollLock(viewport) {
+    if (removeNativeMobileTouchScroll) {
+        removeNativeMobileTouchScroll();
+        removeNativeMobileTouchScroll = null;
+    }
+    viewport.style.overflowAnchor = 'none';
+    viewport.addEventListener('scroll', () => { updateScrollbar(); });
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    if (isTouchDevice && currentTerm) {
+        removeNativeMobileTouchScroll = installMobileTouchScroll(viewport);
+    }
+    currentTerm.onWriteParsed(() => { updateScrollbar(); });
+    currentTerm.scrollToBottom();
     updateScrollbar();
 }
 
@@ -746,22 +800,10 @@ function setupResizeObserver() {
 
 // Connect to terminal — orchestrator
 function connectTerminal(name) {
-    // TerminalInstance 모듈이 아직 로드되지 않은 경우 재시도
-    if (!window.TerminalInstance) {
-        console.warn('TerminalInstance not loaded yet — retrying in 100ms');
-        setTimeout(() => connectTerminal(name), 100);
-        return;
-    }
-
     disconnect();
     if (selectMode) hideSelectOverlay();
     currentName = name;
     currentDisplayName = getDisplayName(terminalData[name] || {name: name});
-    // outer (multi-tab unified) 페이지에 현재 활성 터미널 알림 → 외부 탭
-    // 라벨 자동 동기화 (사용자 선택 (B): iframe 사이드바 + 외부 탭 동시 사용).
-    try {
-        window.parent?.postMessage({ type: 'cn-term-switched', name }, '*');
-    } catch (_) {}
 
     // Reset chat mode
     chatMode = false;
@@ -799,83 +841,41 @@ function connectTerminal(name) {
         el.classList.toggle('active', el.dataset.name === name);
     });
 
-    // Create xterm + WebSocket via TerminalInstance (task5a)
+    // Create xterm
     terminalContainer.innerHTML = '';
-    if (currentInstance) currentInstance.dispose();
-    currentInstance = new window.TerminalInstance({ name });
-    currentInstance.mount(terminalContainer);
+    currentTerm = createXterm();
 
-    // Expose refs so existing code (sendInput, chatSendInput, scroll, etc.) keeps working
-    currentTerm = currentInstance.xterm;
-    fitAddon = currentInstance.fitAddon;
-    currentWs = currentInstance.socket;
+    fitAddon = new FitAddon.FitAddon();
+    const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+    currentTerm.loadAddon(fitAddon);
+    currentTerm.loadAddon(webLinksAddon);
+    currentTerm.open(terminalContainer);
 
-    // Wire up WS status/disconnect events that terminal.js still owns
-    currentInstance.socket.addEventListener('open', () => {
-        statusDot.classList.remove('disconnected');
-    });
-    currentInstance.socket.addEventListener('close', () => {
-        statusDot.classList.add('disconnected');
-    });
-    currentInstance.socket.addEventListener('error', () => {
-        statusDot.classList.add('disconnected');
-    });
-    currentInstance.socket.addEventListener('message', (event) => {
-        try {
-            const msg = JSON.parse(event.data);
-            if (msg[0] === 'disconnect') {
-                statusDot.classList.add('disconnected');
-            }
-        } catch (e) {}
-    });
-
-    // Scroll lock setup after xterm is open
     setTimeout(() => {
+        fitAddon.fit();
         const viewport = terminalContainer.querySelector('.xterm-viewport');
         if (viewport) {
             setupScrollLock(viewport);
         }
-    }, 60);
+    }, 50);
 
-    // 5b: input bar, upload, vkb 인스턴스 메서드로 위임
-    const inputBar5b = document.getElementById('termInputBar');
-    const inputField5b = document.getElementById('termInputField');
-    const sendBtn5b = document.getElementById('termInputSend');
-    if (inputField5b) {
-        // attachUpload 먼저 호출해 _pendingFilesRef 확보
-        const fileInput5b = document.getElementById('termFileInput');
-        const pendingCont5b = document.getElementById('termPendingFiles');
-        const attachBtn5b = document.querySelector('.term-attach-btn');
-        if (fileInput5b && pendingCont5b) {
-            // dropZone = document.body — iframe 어디든 drag-drop 가능 (ChatGPT 식)
-            currentInstance.attachUpload(fileInput5b, pendingCont5b, attachBtn5b, document.body);
-        }
-        currentInstance.attachInputBar(
-            inputBar5b, sendBtn5b, inputField5b,
-            {
-                isMobile,
-                pendingFilesRef: currentInstance._pendingFilesRef,
-                // chat mode intercept: if chatMode is active, delegate to chatSendInput
-                isChatMode: () => chatMode,
-                chatSubmit: () => chatSendInput(),
-            }
-        );
-    }
-    const vkbPanel5b = document.getElementById('vkbPanel');
-    if (vkbPanel5b) currentInstance.attachVKB(vkbPanel5b);
+    setupWebSocket(name);
+    setupResizeObserver();
 }
 
 function disconnect() {
-    if (currentInstance) {
-        currentInstance.dispose();
-        currentInstance = null;
-    } else {
-        // fallback: dispose individually (should not reach here in task5a+)
-        if (currentWs) { currentWs.close(); }
-        if (currentTerm) { currentTerm.dispose(); }
+    if (currentWs) {
+        currentWs.close();
+        currentWs = null;
     }
-    currentWs = null;
-    currentTerm = null;
+    if (removeNativeMobileTouchScroll) {
+        removeNativeMobileTouchScroll();
+        removeNativeMobileTouchScroll = null;
+    }
+    if (currentTerm) {
+        currentTerm.dispose();
+        currentTerm = null;
+    }
     fitAddon = null;
 }
 
@@ -906,9 +906,34 @@ async function sendInput() {
     autoResizeInput();
 }
 
-// [5b] Input listeners moved to TerminalInstance.attachInputBar — called per-connect in connectTerminal.
-// Auto-resize on input still registered globally (no duplication risk, pure UI).
 termInputField.addEventListener('input', autoResizeInput);
+termInputSend.addEventListener('click', sendInput);
+termInputField.addEventListener('keydown', (e) => {
+    // Desktop: Enter = send, Shift+Enter = newline
+    // Mobile: Enter = newline (default), Send button = send
+    if (e.key === 'Enter' && !isMobile && !e.shiftKey) {
+        e.preventDefault();
+        sendInput();
+        return;
+    }
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+            currentWs.send(JSON.stringify(["stdin", "\t"]));
+        }
+    }
+    if (e.key === 'c' && e.ctrlKey) {
+        const hasSelection = termInputField.selectionStart !== termInputField.selectionEnd;
+        if (hasSelection) {
+            // Allow default copy behavior
+            return;
+        }
+        // No selection: clear input field only, do NOT send interrupt to terminal
+        e.preventDefault();
+        termInputField.value = '';
+        autoResizeInput();
+    }
+});
 
 // File upload handling
 function renderPendingFiles(container, fileList, attachBtn) {
@@ -935,15 +960,17 @@ function renderPendingFiles(container, fileList, attachBtn) {
     });
 }
 
-// [5b] File input listener moved to TerminalInstance.attachUpload — called per-connect in connectTerminal.
+termFileInput.addEventListener('change', () => {
+    for (const f of termFileInput.files) termPendingFileList.push(f);
+    termFileInput.value = '';
+    renderPendingFiles(termPendingFiles, termPendingFileList, termAttachBtn);
+});
 
 async function uploadPendingFiles(fileList) {
     if (!fileList.length) return null;
     const form = new FormData();
     for (const f of fileList) form.append('file', f, f.name);
-    const _h = window.__HOST || window.__currentHostId;
-    const _hp = (_h && _h !== 'local') ? `?host=${encodeURIComponent(_h)}` : '';
-    const res = await fetch(BASE + '/api/terminal-upload' + _hp, {
+    const res = await fetch(BASE + '/api/terminal-upload', {
         method: 'POST', body: form, credentials: 'same-origin',
         headers: { 'X-XSRFToken': XSRF },
     });
@@ -976,13 +1003,45 @@ const vkbKeyMap = {
     'F9': '\x1b[20~', 'F10': '\x1b[21~', 'F11': '\x1b[23~', 'F12': '\x1b[24~',
 };
 
-// vkbToggleBtn (panel open/close) is pure UI — keep here.
 vkbToggleBtn.addEventListener('click', () => {
     vkbPanel.classList.toggle('open');
     vkbToggleBtn.classList.toggle('active');
 });
 
-// [5b] vkbPanel key dispatch moved to TerminalInstance.attachVKB — called per-connect in connectTerminal.
+vkbPanel.addEventListener('click', (e) => {
+    const btn = e.target.closest('.vkb-key');
+    if (!btn) return;
+
+    // Handle modifier toggle
+    const mod = btn.dataset.mod;
+    if (mod) {
+        vkbModifiers[mod] = !vkbModifiers[mod];
+        btn.classList.toggle('active', vkbModifiers[mod]);
+        return;
+    }
+
+    // Handle regular key
+    const key = btn.dataset.key;
+    if (!key || !currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+
+    let seq = vkbKeyMap[key] || key;
+
+    // Apply Ctrl modifier: convert character to control code
+    if (vkbModifiers.ctrl && seq.length === 1) {
+        const code = seq.toUpperCase().charCodeAt(0);
+        if (code >= 65 && code <= 90) seq = String.fromCharCode(code - 64);
+    }
+    // Apply Alt modifier: prepend ESC
+    if (vkbModifiers.alt) {
+        seq = '\x1b' + seq;
+    }
+
+    currentWs.send(JSON.stringify(["stdin", seq]));
+
+    // Reset modifiers after key press
+    Object.keys(vkbModifiers).forEach(m => { vkbModifiers[m] = false; });
+    vkbPanel.querySelectorAll('.vkb-mod').forEach(el => el.classList.remove('active'));
+});
 
 // ========== iMESSAGE CHAT ==========
 
@@ -993,10 +1052,11 @@ function openChat() {
     chatLastLine = 0;
     lastChatTimeStr = '';
     phase = 'idle';
+    chatFollow = true;
     termBody.style.display = 'none';
     chatView.classList.add('active');
     snapshotBuffer();
-    scrollChatToBottom();
+    scrollChatToBottom(true);
     chatSnapshotTimer = setInterval(() => {
         if (phase === 'idle') snapshotBuffer();
     }, 500);
@@ -1055,7 +1115,8 @@ async function chatSendInput() {
     phase = 'finding';
     contentHash = '';
     idleSince = 0;
-    scrollChatToBottom();
+    chatFollow = true;
+    scrollChatToBottom(true);
     currentWs.send(JSON.stringify(["stdin", fullText]));
     setTimeout(() => {
         if (currentWs && currentWs.readyState === WebSocket.OPEN)
@@ -1177,9 +1238,28 @@ function addChatBubble(type, text, html) {
     chatMessages.appendChild(row);
 }
 
-function scrollChatToBottom() {
+let chatFollow = true;
+let chatProgrammaticScroll = 0;  // timestamp; suppresses scroll-event toggle
+chatMessages.addEventListener('scroll', () => {
+    // Ignore scroll events that result from our own scrollTop assignments,
+    // otherwise they'd flip chatFollow back to true mid-stream.
+    if (Date.now() - chatProgrammaticScroll < 150) return;
+    const atBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 80;
+    chatFollow = atBottom;
+});
+// Detect any user-initiated input as an explicit "stop following" signal,
+// regardless of where the resulting scrollTop lands.
+['wheel', 'touchstart', 'mousedown', 'keydown'].forEach(ev => {
+    chatMessages.addEventListener(ev, () => { chatFollow = false; }, { passive: true });
+});
+function scrollChatToBottom(force = false) {
+    if (!force && !chatFollow) return;
     requestAnimationFrame(() => {
+        // Re-check inside rAF: user may have scrolled up between call and frame.
+        if (!force && !chatFollow) return;
+        chatProgrammaticScroll = Date.now();
         chatMessages.scrollTop = chatMessages.scrollHeight;
+        chatFollow = true;
     });
 }
 
@@ -1598,48 +1678,16 @@ renameBtn.addEventListener('click', async () => {
 });
 
 // === URL hash navigation for terminal bookmarking ===
-async function connectFromHash() {
+function connectFromHash() {
     const hash = decodeURIComponent(location.hash.slice(1));
-    if (!hash) return;
-    if (terminalData[hash]) {
-        if (hash !== currentName) connectTerminal(hash);
-        return;
+    if (hash && terminalData[hash] && hash !== currentName) {
+        connectTerminal(hash);
     }
-    // hash 지정됐는데 backend 에 그 터미널 없음 (서버 재시작으로 wipe 되거나
-    // tab 이 옛 버전에서 persisted). 사용자 입장에선 "터미널 사라짐" 으로
-    // 보임 → 자동으로 새 터미널 생성해서 연결 (silent fallback).
-    try {
-        const xsrf = getXsrf();
-        const res = await fetch(JUPYTER + '/api/terminals', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-XSRFToken': xsrf },
-            credentials: 'same-origin',
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        await loadTerminals();
-        connectTerminal(data.name);
-    } catch (_) {}
 }
 
 loadTerminalOrder();
 loadTerminals().then(() => connectFromHash());
 setInterval(loadTerminals, 10000);
 window.addEventListener('hashchange', connectFromHash);
-
-// ===== Bridge to TerminalInstance (task 5c) =====
-// TerminalInstance.setChatMode(enabled) calls this to sync the IIFE-scoped chatMode state.
-window.__setChatMode = function (enabled) {
-    if (enabled) {
-        openChat();
-    } else {
-        closeChat();
-    }
-};
-
-// TerminalInstance.openConfigModal() calls this to open the config modal for a given terminal.
-window.__openTerminalConfig = function (inst) {
-    showConfigModal(inst ? inst.name : currentName);
-};
 
 })();

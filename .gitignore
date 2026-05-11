@@ -9,3 +9,4 @@ config/
 build/
 dist/
 .eggs/
+jupyter.log

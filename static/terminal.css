@@ -420,7 +420,8 @@ html, body {
 }
 #terminalContainer .xterm-viewport {
     overflow-y: scroll !important;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior-y: contain;
     scrollbar-width: none;
 }
 #terminalContainer .xterm-viewport::-webkit-scrollbar {
