@@ -32,13 +32,16 @@ export function restoreFromStorage() {
 export function onChange(fn) { subs.push(fn); }
 function fire() { persist(); for (const fn of subs) fn(); }
 
-export function openTab({ kind, contentRef, leafId, ...extra }) {
+export function openTab({ kind, contentRef, leafId, allowDuplicate = false, ...extra }) {
   // 같은 kind+contentRef 가 이미 어느 leaf 에든 열려있으면 거기서 활성화 (이동 X)
   // — 사용자가 사이드바 터미널 클릭 시 split 구조가 망가지지 않게.
-  for (const t of tabs.values()) {
-    if (t.kind === kind && t.contentRef === contentRef) {
-      fire();
-      return t.id;
+  // allowDuplicate=true 면 (terminal picker 의 미러링) 중복 허용.
+  if (!allowDuplicate) {
+    for (const t of tabs.values()) {
+      if (t.kind === kind && t.contentRef === contentRef) {
+        fire();
+        return t.id;
+      }
     }
   }
   const id = `tab-${nextTabId++}`;

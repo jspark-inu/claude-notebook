@@ -1,6 +1,7 @@
 import { BASE, mutFetchOpts, fetchOpts } from '../core/api.js';
 import * as tabStore from '../main/tab-store.js';
 import * as layout from '../main/layout.js';
+import { openTerminalInLeaf } from './open-terminal.js';
 
 const JUPYTER = window.__JUPYTER_BASE !== undefined ? window.__JUPYTER_BASE : BASE;
 const POLL_MS = 5000;
@@ -54,8 +55,19 @@ export function init({ listEl, addBtn }) {
       }
 
       link.addEventListener('click', () => {
+        // 활성 leaf 에 이미 있으면 활성화, 없으면 거기로 attach (다른 leaf 에
+        // 있어도 미러링 허용 — picker 의 onPick 과 같은 정책).
         const leafId = layout.getActiveLeafId();
-        const tabId = tabStore.openTab({ kind: 'term', contentRef: t.name, leafId });
+        const existingInLeaf = tabStore.tabsForLeaf(leafId)
+          .find(tt => tt.kind === 'term' && tt.contentRef === t.name);
+        if (existingInLeaf) {
+          layout.activateTab(existingInLeaf.id);
+          return;
+        }
+        const tabId = tabStore.openTab({
+          kind: 'term', contentRef: t.name, leafId,
+          allowDuplicate: true, host,
+        });
         layout.activateTab(tabId);
       });
 
@@ -65,25 +77,9 @@ export function init({ listEl, addBtn }) {
   }
 
   if (addBtn) {
-    addBtn.addEventListener('click', async () => {
-      try {
-        const r = await fetch(`${BASE}/api/terminals/new`, mutFetchOpts({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ host_id: window.__currentHostId || 'local' }),
-        }));
-        if (!r.ok) {
-          alert('새 터미널 생성 실패: ' + r.status);
-          return;
-        }
-        const { name } = await r.json();
-        await refresh();
-        const leafId = layout.getActiveLeafId();
-        const tabId = tabStore.openTab({ kind: 'term', contentRef: name, leafId });
-        layout.activateTab(tabId);
-      } catch (err) {
-        console.error('new terminal failed', err);
-      }
+    addBtn.addEventListener('click', () => {
+      const leafId = layout.getActiveLeafId();
+      openTerminalInLeaf(leafId, addBtn);
     });
   }
 

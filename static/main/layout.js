@@ -1,5 +1,6 @@
 import * as tabStore from './tab-store.js';
 import { BASE, mutFetchOpts } from '../core/api.js';
+import { openTerminalInLeaf } from '../terminals/open-terminal.js';
 
 let nextLeafId = 1;
 const state = {
@@ -320,32 +321,12 @@ function render() {
     addBtn.type = 'button';
     addBtn.className = 'tab-add';
     addBtn.textContent = '+';
-    addBtn.title = '이 패널에 새 터미널 추가';
-    addBtn.addEventListener('click', async e => {
+    addBtn.title = '이 패널에 터미널 열기 (새로 만들기 또는 기존 선택)';
+    addBtn.addEventListener('click', e => {
       e.stopPropagation();
       e.preventDefault();
-      try {
-        const r = await fetch(`${BASE}/api/terminals/new`, mutFetchOpts({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ host_id: window.__currentHostId || 'local' }),
-        }));
-        if (!r.ok) {
-          const txt = await r.text();
-          alert(`새 터미널 생성 실패 (${r.status}): ${txt.slice(0, 200)}`);
-          return;
-        }
-        const { name, host_id } = await r.json();
-        const tabId = tabStore.openTab({ kind: 'term', contentRef: name, leafId: leaf.id });
-        // 탭 라벨에 호스트 표시 — Terminal {name} · {host} (사용자 요청)
-        if (host_id) tabStore.updateTab(tabId, { host: host_id });
-        leaf.activeTabId = tabId;
-        state.activeLeafId = leaf.id;
-        fire();
-      } catch (err) {
-        alert(`+ 클릭 에러: ${err.message}`);
-        console.error(err);
-      }
+      state.activeLeafId = leaf.id;
+      openTerminalInLeaf(leaf.id, addBtn);
     });
     bar.appendChild(addBtn);
 
