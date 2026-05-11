@@ -80,11 +80,16 @@ def _ensure_session(sess: str, cwd: str) -> bool:
     except Exception as e:
         log.warning("tmux new-session %s raised: %s", sess, e)
         return False
-    # history-limit is best-effort
-    try:
-        _run(["tmux", "set-option", "-t", sess, "history-limit", "50000"])
-    except Exception:
-        pass
+    # history-limit + status off — status bar 가 켜져 있으면 xterm scrollback 에
+    # 매 redraw 마다 status 줄이 한 줄씩 누적돼서 스크롤백이 status 로 도배됨.
+    for opt in (
+        ["history-limit", "50000"],
+        ["status", "off"],
+    ):
+        try:
+            _run(["tmux", "set-option", "-t", sess, *opt])
+        except Exception:
+            pass
     return True
 
 

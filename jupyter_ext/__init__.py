@@ -1500,22 +1500,11 @@ def load_jupyter_server_extension(nb_app):
     term_mgr = nb_app.web_app.settings.get('terminal_manager')
     if term_mgr is not None:
         term_mgr.term_settings['cwd'] = str(workspace)
-        # Wrap PTYs in tmux so scrollback survives reload / jupyter restart.
-        # Falls back silently if tmux is missing.
-        try:
-            from . import tmux_wrap
-            tmux_wrap.install(term_mgr, str(workspace))
-            # Orphan sweep — kill cn-* sessions not corresponding to a
-            # persisted slot so long-running jupyter doesn't accumulate them.
-            try:
-                saved = _read_names() or {}
-            except Exception:
-                saved = {}
-            # saved 의 key 가 jupyter terminal name (slot 번호 "1","2"...)
-            keep = list(saved.keys())
-            tmux_wrap.sweep_orphans(keep)
-        except Exception as e:
-            nb_app.log.warning("tmux wrap install failed: %s", e)
+        # tmux 래핑 비활성화 — alternate-screen TUI(claude code 등) 가 tmux 안에서
+        # 돌면 redraw 결과가 xterm scrollback 에 조각조각 누적돼 위로 올리면 화면이
+        # 깨져 보이는 회복 불가 회귀가 발생. 새로고침 시 세션 보존 이점보다
+        # 가독성 손실이 더 커서 vanilla PTY 로 복귀. (commit e0d5ae1 의 도입을
+        # 사용자 요청으로 disable)
 
     base_url = nb_app.web_app.settings["base_url"]
     handlers = [

@@ -90,6 +90,7 @@ let scrollDragging = false;
 let scrollDragStartY = 0;
 let scrollDragStartTop = 0;
 let removeNativeMobileTouchScroll = null;
+let removeWheelScroll = null;
 
 // Terminal list render cache
 let lastRenderKey = '';
@@ -636,9 +637,7 @@ function createXterm() {
             cyan: '#4ec9b0',
             white: '#d4d4d4',
         },
-        // tmux 가 history-limit=50000 으로 스크롤백을 들고 있어서 xterm 자체
-        // 는 작게 — reconnect 시 tmux 가 화면을 다시 그려준다.
-        scrollback: 500,
+        scrollback: 10000,
         smoothScrollDuration: 0,
         scrollOnUserInput: false,
         allowProposedApi: true,
@@ -725,16 +724,49 @@ function installMobileTouchScroll(viewport) {
     };
 }
 
+// Why: claude-code/htop 등 alternate screen buffer 앱이 떠 있으면 xterm.js 가
+// 마우스 휠을 ↑/↓ 방향키로 변환해서 app 에 보낸다 (alternate-scroll / DECSET 1007).
+// 사용자는 휠로 입력 히스토리가 호출되는 것이 아니라 화면 스크롤백을 보고 싶음.
+// capture 단계에서 wheel 을 가로채 xterm 의 핸들러보다 먼저 scrollLines 로 처리.
+function installWheelScroll(viewport) {
+    const xtermRoot = viewport.closest('.xterm') || viewport.parentElement;
+    const target = xtermRoot || viewport;
+    const onWheel = (ev) => {
+        if (!currentTerm) return;
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        let delta = ev.deltaY;
+        if (delta === 0) return;
+        if (ev.deltaMode === 1) delta *= 16;        // LINE
+        else if (ev.deltaMode === 2) delta *= 100;  // PAGE
+        const rowHeight = 20;
+        const lines = delta > 0
+            ? Math.max(1, Math.round(delta / rowHeight))
+            : Math.min(-1, Math.round(delta / rowHeight));
+        currentTerm.scrollLines(lines);
+        updateScrollbar();
+    };
+    target.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    return () => target.removeEventListener('wheel', onWheel, true);
+}
+
 function setupScrollLock(viewport) {
     if (removeNativeMobileTouchScroll) {
         removeNativeMobileTouchScroll();
         removeNativeMobileTouchScroll = null;
+    }
+    if (removeWheelScroll) {
+        removeWheelScroll();
+        removeWheelScroll = null;
     }
     viewport.style.overflowAnchor = 'none';
     viewport.addEventListener('scroll', () => { updateScrollbar(); });
     const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     if (isTouchDevice && currentTerm) {
         removeNativeMobileTouchScroll = installMobileTouchScroll(viewport);
+    }
+    if (currentTerm) {
+        removeWheelScroll = installWheelScroll(viewport);
     }
     currentTerm.onWriteParsed(() => { updateScrollbar(); });
     currentTerm.scrollToBottom();
@@ -926,6 +958,10 @@ function disconnect() {
         removeNativeMobileTouchScroll();
         removeNativeMobileTouchScroll = null;
     }
+    if (removeWheelScroll) {
+        removeWheelScroll();
+        removeWheelScroll = null;
+    }
     if (currentTerm) {
         currentTerm.dispose();
         currentTerm = null;
@@ -1019,6 +1055,77 @@ termFileInput.addEventListener('change', () => {
     termFileInput.value = '';
     renderPendingFiles(termPendingFiles, termPendingFileList, termAttachBtn);
 });
+
+// Ctrl+V paste — 캡처 도구 이미지 등을 입력바에 직접 첨부. terminal.js 가 재작성되면서
+// term-instance.js 의 paste 분기 wiring 도 같이 끊겼던 회귀 복구.
+termInputField.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const it of items) {
+        if (it.kind === 'file') {
+            const f = it.getAsFile();
+            if (!f) continue;
+            const ext = (f.name.split('.').pop() || 'png').toLowerCase();
+            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            files.push(new File([f], `paste-${ts}.${ext}`, { type: f.type }));
+        }
+    }
+    if (files.length) {
+        e.preventDefault();
+        for (const f of files) termPendingFileList.push(f);
+        renderPendingFiles(termPendingFiles, termPendingFileList, termAttachBtn);
+    }
+});
+
+// Drag-drop: OS 파일을 iframe 어디든 drop 하면 입력바 첨부 (ChatGPT 식).
+// 7514319 의 terminal.js 재작성 때 TerminalInstance.attachUpload(dropZoneEl) 분기가
+// 함께 사라져서 dnd 가 죽었음. 이 페이지가 termPendingFileList 를 직접 관리하므로
+// 동일 리스트에 push 하는 인라인 핸들러로 복구.
+(function attachTerminalDropZone() {
+    let dragDepth = 0;
+    const overlay = document.createElement('div');
+    overlay.className = 'term-drop-overlay';
+    overlay.innerHTML = '<div class="term-drop-overlay-msg">📎 파일을 놓으면 터미널 입력에 첨부됩니다</div>';
+    overlay.style.cssText =
+        'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;' +
+        'background:rgba(0,0,0,0.7);color:#fff;display:none;' +
+        'align-items:center;justify-content:center;font-size:18px;' +
+        'pointer-events:none;border:4px dashed rgba(255,255,255,0.7);';
+    document.body.appendChild(overlay);
+    const showOverlay = (s) => { overlay.style.display = s ? 'flex' : 'none'; };
+
+    document.body.addEventListener('dragenter', (e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        dragDepth++;
+        if (dragDepth === 1) showOverlay(true);
+    });
+    document.body.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+    });
+    document.body.addEventListener('dragleave', (e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) showOverlay(false);
+    });
+    document.body.addEventListener('drop', (e) => {
+        if (!e.dataTransfer?.files?.length) return;
+        e.preventDefault();
+        dragDepth = 0;
+        showOverlay(false);
+        for (const f of e.dataTransfer.files) termPendingFileList.push(f);
+        renderPendingFiles(termPendingFiles, termPendingFileList, termAttachBtn);
+    });
+    // Safety: dragenter/leave 가 iframe/창 경계에서 불균형이 나면 overlay 가 남는다.
+    // dragend / window blur / ESC 에서 강제 리셋.
+    const forceReset = () => { dragDepth = 0; showOverlay(false); };
+    window.addEventListener('dragend', forceReset);
+    window.addEventListener('blur', forceReset);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') forceReset(); });
+})();
 
 async function uploadPendingFiles(fileList) {
     if (!fileList.length) return null;
