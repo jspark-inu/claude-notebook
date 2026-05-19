@@ -19,7 +19,7 @@ import {
     deletePaths,
     renameItem  as renameItemApi,
 } from './file-ops.js';
-import { loadTree } from './tree.js';
+import { loadTree, refreshTree } from './tree.js?v=hostgroup2';
 
 const finder           = document.getElementById('finder');
 const finderGrid       = document.getElementById('finderGrid');
@@ -98,7 +98,8 @@ function updateSelectionBar() {
 
 function refreshWorkspaceViews() {
     loadFinderGrid(currentFinderPath);
-    loadTree();
+    // 펼침 상태/스크롤/active 보존하면서 갱신 (CRUD 후 사용자가 보던 위치 유지)
+    refreshTree({ preserveState: true });
 }
 
 async function deleteSelected() {
