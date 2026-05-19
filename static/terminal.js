@@ -66,7 +66,15 @@ function scheduleReconnect() {
 let currentDisplayName = null;
 let fitAddon = null;
 let terminalData = {};  // name -> {display_name, last_activity}
+let termHostsData = {};  // name -> host_id (from /api/term-hosts)
+let showOtherHosts = false;  // "▶ 다른 host" 토글 상태
 let chatMode = false;
+
+function getCurrentHost() {
+    if (window.__currentHostId) return window.__currentHostId;
+    try { return new URLSearchParams(location.search).get('host') || 'local'; }
+    catch (_) { return 'local'; }
+}
 
 // Server-synced terminal config (slot-based, shared across devices)
 // Format: {slot: {display_name, command}}
@@ -405,15 +413,23 @@ configCmdInput.addEventListener('keydown', (e) => {
 
 async function loadTerminals() {
     try {
-        const res = await fetch(JUPYTER + '/api/terminals');
+        const [res, hostsRes] = await Promise.all([
+            fetch(JUPYTER + '/api/terminals'),
+            fetch(BASE + '/api/term-hosts').catch(() => null),
+        ]);
         if (!res.ok) throw new Error('Failed');
         const data = await res.json();
+        termHostsData = (hostsRes && hostsRes.ok) ? await hostsRes.json() : {};
         terminalData = {};
         data.forEach(t => { terminalData[t.name] = t; });
         await fetchServerSlots();
         slotMap = buildSlotMap(data);
-        // Skip re-render if neither terminal list nor slot config changed
-        const renderKey = JSON.stringify(data.map(t => t.name).sort()) + JSON.stringify(serverSlots);
+        const currentHost = getCurrentHost();
+        const renderKey = JSON.stringify(data.map(t => t.name).sort())
+            + '|' + JSON.stringify(serverSlots)
+            + '|' + JSON.stringify(termHostsData)
+            + '|' + currentHost
+            + '|' + String(showOtherHosts);
         if (renderKey === lastRenderKey) return;
         lastRenderKey = renderKey;
         renderList(data);
@@ -423,16 +439,10 @@ async function loadTerminals() {
 }
 
 function renderList(terminals) {
-    if (terminals.length === 0) {
-        termList.innerHTML = '<div class="term-empty">No active terminals.<br>Click <strong>+</strong> to create one.</div>';
-        return;
-    }
     termList.innerHTML = '';
 
     // Apply user-defined order, append any new terminals at the end so
-    // freshly-spawned sessions are immediately visible. Any orphaned
-    // entries in `terminalOrder` (terminals that were closed) are dropped
-    // implicitly when we re-derive the array from the rendered list.
+    // freshly-spawned sessions are immediately visible.
     const termMap = Object.fromEntries(terminals.map(t => [t.name, t]));
     const ordered = [];
     terminalOrder.forEach(name => {
@@ -444,50 +454,88 @@ function renderList(terminals) {
     terminalOrder = ordered.map(t => t.name);
     saveTerminalOrder();
 
+    if (ordered.length === 0) {
+        termList.innerHTML = '<div class="term-empty">No active terminals.<br>Click <strong>+</strong> to create one.</div>';
+        return;
+    }
+
+    const currentHost = getCurrentHost();
+    const own = [], other = [];
     ordered.forEach(t => {
-        const item = document.createElement('div');
-        item.className = 'term-item' + (t.name === currentName ? ' active' : '');
-        item.dataset.name = t.name;
-        item.draggable = true;
-        const ago = timeAgo(t.last_activity);
-        const displayName = getDisplayName(t);
-        item.innerHTML = `
-            <span class="term-item-drag" title="드래그하여 순서 변경">⠿</span>
-            <span class="term-item-icon">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.146 3.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L4.793 6.5 2.146 3.854a.5.5 0 0 1 0-.708zM6 10h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1z"/></svg>
-            </span>
-            <span class="term-item-name">${esc(displayName)}</span>
-            <span class="term-item-time">${ago}</span>
-            <button class="term-item-close" title="Shutdown terminal">&times;</button>
-        `;
-        // Drag-and-drop handlers (PR #2)
+        const h = termHostsData[t.name] || 'local';
+        (h === currentHost ? own : other).push(t);
+    });
+
+    if (own.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'term-empty';
+        empty.textContent = `${currentHost} 에 터미널 없음`;
+        termList.appendChild(empty);
+    } else {
+        own.forEach(t => renderTermItem(t, false));
+    }
+
+    if (other.length > 0) {
+        const toggle = document.createElement('div');
+        toggle.className = 'term-host-toggle';
+        toggle.style.cssText = 'padding:8px 12px; cursor:pointer; color:var(--text-secondary,#888); font-size:11px; text-transform:uppercase; letter-spacing:0.05em; user-select:none; border-top:1px solid var(--border,rgba(127,127,127,0.2)); margin-top:4px;';
+        toggle.textContent = (showOtherHosts ? '▼' : '▶') + ` 다른 host 터미널 (${other.length})`;
+        toggle.addEventListener('click', () => {
+            showOtherHosts = !showOtherHosts;
+            lastRenderKey = '';
+            renderList(terminals);
+        });
+        termList.appendChild(toggle);
+        if (showOtherHosts) {
+            other.forEach(t => renderTermItem(t, true));
+        }
+    }
+}
+
+function renderTermItem(t, isOther) {
+    const item = document.createElement('div');
+    item.className = 'term-item' + (t.name === currentName ? ' active' : '');
+    item.dataset.name = t.name;
+    if (!isOther) item.draggable = true;
+    if (isOther) item.style.opacity = '0.7';
+    const ago = timeAgo(t.last_activity);
+    const displayName = getDisplayName(t);
+    const dragGlyph = isOther ? '·' : '⠿';
+    const dragTitle = isOther ? `다른 host (${termHostsData[t.name] || 'local'})` : '드래그하여 순서 변경';
+    item.innerHTML = `
+        <span class="term-item-drag" title="${dragTitle}">${dragGlyph}</span>
+        <span class="term-item-icon">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.146 3.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L4.793 6.5 2.146 3.854a.5.5 0 0 1 0-.708zM6 10h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1z"/></svg>
+        </span>
+        <span class="term-item-name">${esc(displayName)}</span>
+        <span class="term-item-time">${ago}</span>
+        <button class="term-item-close" title="Shutdown terminal">&times;</button>
+    `;
+    if (!isOther) {
         item.addEventListener('dragstart', handleTermDragStart);
         item.addEventListener('dragover', handleTermDragOver);
         item.addEventListener('dragenter', handleTermDragEnter);
         item.addEventListener('dragleave', handleTermDragLeave);
         item.addEventListener('drop', handleTermDrop);
         item.addEventListener('dragend', handleTermDragEnd);
-        // Click to connect
-        item.addEventListener('click', (e) => {
-            if (e.target.closest('.term-item-close')) return;
-            if (e.target.closest('.term-item-drag')) return;
-            if (e.target.closest('.term-item-name')?.isContentEditable) return;
-            if (isMobile) closeSidebar();
-            connectTerminal(t.name);
-        });
-        // Double-click name to rename
-        const nameEl = item.querySelector('.term-item-name');
-        nameEl.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
-            startRename(nameEl, t.name);
-        });
-        // Close button
-        item.querySelector('.term-item-close').addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await deleteTerminal(t.name);
-        });
-        termList.appendChild(item);
+    }
+    item.addEventListener('click', (e) => {
+        if (e.target.closest('.term-item-close')) return;
+        if (e.target.closest('.term-item-drag')) return;
+        if (e.target.closest('.term-item-name')?.isContentEditable) return;
+        if (isMobile) closeSidebar();
+        connectTerminal(t.name);
     });
+    const nameEl = item.querySelector('.term-item-name');
+    nameEl.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startRename(nameEl, t.name);
+    });
+    item.querySelector('.term-item-close').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await deleteTerminal(t.name);
+    });
+    termList.appendChild(item);
 }
 
 // ========== Drag & drop reorder (PR #2) ==========
@@ -1131,7 +1179,9 @@ async function uploadPendingFiles(fileList) {
     if (!fileList.length) return null;
     const form = new FormData();
     for (const f of fileList) form.append('file', f, f.name);
-    const res = await fetch(BASE + '/api/terminal-upload', {
+    const h = window.__HOST || window.__currentHostId;
+    const hp = (h && h !== 'local') ? `?host=${encodeURIComponent(h)}` : '';
+    const res = await fetch(BASE + '/api/terminal-upload' + hp, {
         method: 'POST', body: form, credentials: 'same-origin',
         headers: { 'X-XSRFToken': XSRF },
     });
