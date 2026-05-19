@@ -122,7 +122,11 @@ let contentHash = '';
 let idleSince = 0;
 const IDLE_MS = 3000;
 
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia('(max-width: 768px)').matches;
+function isMobileInputMode() {
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+        || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+}
+const isMobile = isMobileInputMode();
 
 // ========== UTILITIES ==========
 
@@ -670,7 +674,7 @@ function createXterm() {
     const term = new Terminal({
         cursorBlink: true,
         fontSize: 14,
-        fontFamily: "'SFMono-Regular', 'Fira Code', 'Consolas', 'Courier New', monospace",
+        fontFamily: "'D2Coding', 'SFMono-Regular', 'Fira Code', 'Consolas', 'Courier New', monospace",
         theme: {
             background: '#1e1e1e',
             foreground: '#d4d4d4',
@@ -1049,7 +1053,7 @@ termInputSend.addEventListener('click', sendInput);
 termInputField.addEventListener('keydown', (e) => {
     // Desktop: Enter = send, Shift+Enter = newline
     // Mobile: Enter = newline (default), Send button = send
-    if (e.key === 'Enter' && !isMobile && !e.shiftKey) {
+    if (e.key === 'Enter' && !isMobileInputMode() && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         sendInput();
         return;

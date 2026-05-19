@@ -980,7 +980,7 @@ html, body {
 }
 
 /* Mobile */
-@media (max-width: 768px) {
+@media (max-width: 768px), (hover: none) and (pointer: coarse) {
     .term-sidebar {
         position: fixed;
         top: 0; left: 0; bottom: 0;
@@ -1051,6 +1051,33 @@ html, body {
     /* Terminal padding adjusts to the wider scrollbar column */
     #terminalContainer {
         padding-right: 4px;
+    }
+}
+
+/* iPad 외장 키보드의 Shortcut Bar(~56px)에 입력바가 가리지 않도록 여유.
+   터치+넓은 뷰포트(=iPad류) 에만 적용; 좁은 폰은 위쪽 블록의 8px 유지. */
+@media (hover: none) and (pointer: coarse) {
+    /* iPad 외장 키보드 Shortcut Bar(~56px)에 입력바가 가리지 않도록 여유 */
+    .term-input-bar {
+        padding-bottom: max(56px, env(safe-area-inset-bottom));
+    }
+    /* 입력 영역을 세로로 넓혀 Shortcut Bar 위에서 충분히 보이게 */
+    .term-input-field {
+        min-height: 160px;
+    }
+    /* Send 버튼은 입력바 위쪽에 붙여서 Shortcut Bar 에 가리지 않게 */
+    .term-input-send {
+        align-self: flex-start;
+    }
+    /* 파일 첨부 + 가상 키보드 토글 버튼도 Send 와 같은 라인(상단) 으로 올림.
+       기본 CSS 가 align-items:flex-end + padding-bottom:4px 라서 입력창 하단에
+       박혀있었음 — Send 만 위에 있고 좌측 버튼은 아래에 남아 어색했던 회귀 fix. */
+    .term-attach-btn,
+    .vkb-toggle-btn {
+        align-self: flex-start;
+        align-items: flex-start;
+        padding-top: 4px;
+        padding-bottom: 0;
     }
 }
 

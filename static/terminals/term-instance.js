@@ -26,7 +26,7 @@ export class TerminalInstance {
     this.xterm = new window.Terminal({
       cursorBlink: true,
       fontSize: 14,
-      fontFamily: "'SFMono-Regular', 'Fira Code', 'Consolas', 'Courier New', monospace",
+      fontFamily: "'D2Coding', 'SFMono-Regular', 'Fira Code', 'Consolas', 'Courier New', monospace",
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',

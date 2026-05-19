@@ -520,11 +520,19 @@ class WorkspaceStaticHandler(BaseHandler):
         }
         ct = content_types.get(filepath.suffix, 'application/octet-stream')
         self.set_header("Content-Type", ct)
-        # JS/CSS/HTML iterate fast; tell browsers to revalidate every load
-        # so users don't get stuck on a cached pre-fix version after a deploy.
+        # JS/CSS/HTML iterate fast — no-store 로 강제. iOS Safari 가 must-revalidate
+        # 만으론 BFCache/module cache 에서 옛 버전을 그대로 쓰는 회귀가 있었음
+        # (2026-05-13). compute_etag 도 비활성화해서 Tornado 자동 ETag 304 회로
+        # 자체를 끊는다.
         if filepath.suffix in ('.css', '.js', '.html'):
-            self.set_header("Cache-Control", "no-cache, must-revalidate")
+            self.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.set_header("Pragma", "no-cache")
+            self.set_header("Expires", "0")
         self.finish(filepath.read_bytes())
+
+    def compute_etag(self):
+        # 자동 ETag 비활성 — 304 회로 회피 (iOS Safari 회귀 방지)
+        return None
 
 
 class WorkspaceTreeHandler(BaseHandler):
