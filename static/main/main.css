@@ -225,6 +225,8 @@
   font: 14px/1 system-ui;
 }
 .side-add:hover { background: var(--border); color: var(--text); }
+#treeRefreshBtn.spinning { animation: cn-spin 0.6s linear infinite; pointer-events: none; }
+@keyframes cn-spin { to { transform: rotate(360deg); } }
 .side-body { padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; }
 .term-list { list-style: none; margin: 0; padding: 4px 8px; overflow: auto; }
 
@@ -303,7 +305,61 @@
 }
 .term-link .term-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-link .term-host { color: var(--text-secondary); font-size: 11px; }
+.term-host-header {
+  list-style: none;
+  padding: 10px 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.term-host-header:not(:first-child) { margin-top: 8px; }
 .term-link.active .term-host { color: rgba(255,255,255,0.85); }
+
+/* host 그룹 토글 (PR3) */
+.term-host-group { list-style: none; }
+.term-host-details { margin: 4px 0; }
+.term-host-details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  user-select: none;
+}
+.term-host-details > summary::-webkit-details-marker { display: none; }
+.term-host-details > summary::before {
+  content: '\25B6';  /* ▶ */
+  font-size: 9px;
+  transition: transform 0.15s ease;
+  color: var(--text-secondary);
+}
+.term-host-details[open] > summary::before { transform: rotate(90deg); }
+.term-host-details > summary:hover { background: var(--hover, rgba(127,127,127,0.1)); }
+.term-host-summary.is-current { color: var(--text); }
+.term-host-summary .term-host-count { opacity: 0.7; font-weight: 500; }
+.term-host-summary .term-host-badge:not(:empty) {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent, #16a34a);
+  color: #fff;
+}
+.term-host-inner { list-style: none; margin: 0; padding: 0 0 0 4px; }
+.term-host-inner li { list-style: none; }
 .term-link .pending {
   margin-left: 4px;
   color: var(--accent);

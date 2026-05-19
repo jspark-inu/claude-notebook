@@ -23,7 +23,7 @@ export function closeOpenPicker() {
 export async function showPicker(anchorEl, opts) {
   closeOpenPicker();
 
-  const { hostId = 'local', currentLeafId, onPick, onCreate, onKill } = opts || {};
+  const { hostId = 'local', currentLeafId, onPick, onCreate, onKill, showOtherHosts = false } = opts || {};
 
   let termList = [];
   let termHosts = {};
@@ -91,16 +91,36 @@ export async function showPicker(anchorEl, opts) {
     },
   });
 
+  // host 필터링 — default 는 current host (hostId) 만. 다른 host 있으면
+  // 마지막에 "▶ 다른 host (N)" 토글 row 추가, 클릭 시 picker 재오픈으로 펼침.
+  const ownTerms = [];
+  const otherTerms = [];
   for (const t of termList) {
+    const host = termHosts[t.name] || 'local';
+    (host === hostId ? ownTerms : otherTerms).push({ t, host });
+  }
+  const visibleTerms = showOtherHosts ? [...ownTerms, ...otherTerms] : ownTerms;
+  for (const { t, host } of visibleTerms) {
     const name = t.name;
-    const host = termHosts[name] || 'local';
     const cnt = attachCount[name] || 0;
+    const isOther = host !== hostId;
     items.push({
       name,
       host,
       label: name,
       sub: cnt > 0 ? `${host} · Attached×${cnt}` : host,
+      isOther,
       action: () => onPick({ name, host }),
+    });
+  }
+  if (!showOtherHosts && otherTerms.length > 0) {
+    items.push({
+      isToggle: true,
+      label: `▶ 다른 host 터미널 (${otherTerms.length})`,
+      sub: '',
+      action: () => {
+        showPicker(anchorEl, { ...opts, showOtherHosts: true });
+      },
     });
   }
 
@@ -122,10 +142,12 @@ export async function showPicker(anchorEl, opts) {
     `;
 
     const main = document.createElement('div');
-    main.style.cssText = 'flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+    main.style.cssText = 'flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'
+      + (it.isOther ? ' opacity:0.7;' : '');
     const labelEl = document.createElement('div');
     labelEl.textContent = it.label;
-    labelEl.style.cssText = it.isNew ? 'color:var(--accent,#569cd6); font-weight:500;' : '';
+    labelEl.style.cssText = it.isNew ? 'color:var(--accent,#569cd6); font-weight:500;'
+      : (it.isToggle ? 'color:var(--text-secondary,#888); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;' : '');
     main.appendChild(labelEl);
     if (it.sub) {
       const subEl = document.createElement('div');
@@ -135,7 +157,7 @@ export async function showPicker(anchorEl, opts) {
     }
     row.appendChild(main);
 
-    if (!it.isNew && onKill) {
+    if (!it.isNew && !it.isToggle && onKill) {
       const kill = document.createElement('button');
       kill.type = 'button';
       kill.textContent = '🗑';
@@ -163,10 +185,12 @@ export async function showPicker(anchorEl, opts) {
     root.appendChild(row);
   }
 
-  if (items.length === 1) {
+  if (visibleTerms.filter(x => !x.isOther).length === 0
+      && visibleTerms.length === ownTerms.length) {
+    // own host 에 터미널 없음 (다른 host 펼침 모드 제외)
     const empty = document.createElement('div');
     empty.style.cssText = 'padding: 12px; color: var(--text-secondary,#888); font-size:12px; text-align:center;';
-    empty.textContent = '기존 터미널 없음';
+    empty.textContent = `${hostId} 에 기존 터미널 없음`;
     root.appendChild(empty);
   }
 

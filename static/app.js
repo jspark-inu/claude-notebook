@@ -1,15 +1,15 @@
 // 통합 페이지 부트.
 import { BASE, mutFetchOpts } from './core/api.js';
-import * as layout from './main/layout.js';
+import * as layout from './main/layout.js?v=hostgroup2';
 import * as tabStore from './main/tab-store.js';
 import { TerminalInstance } from './terminals/term-instance.js';
 import { FileViewerInstance } from './viewers/file-instance.js';
-import { initTree, loadTree } from './ui/tree.js';
+import { initTree, loadTree } from './ui/tree.js?v=hostgroup2';
 import { initSidebar } from './ui/sidebar.js';
-import { init as initTermList } from './terminals/term-list.js';
+import { init as initTermList } from './terminals/term-list.js?v=toggle1';
 import { init as initSshChip } from './ssh/ssh-chip.js';
 // §5.7 보존: finder / history / file-ops / keyboard-help
-import { initFinder, loadFinderGrid, getCurrentDir } from './ui/finder.js';
+import { initFinder, loadFinderGrid, getCurrentDir } from './ui/finder.js?v=hostgroup2';
 import { initFileOpsButtons } from './ui/file-ops.js';
 import { initKeyboardHelp } from './editor/keyboard-help.js';
 import { initHistoryModal } from './ui/history-modal.js';
@@ -169,23 +169,33 @@ function onMountTab(e) {
     const ifr = document.createElement('iframe');
     ifr.dataset.termFrame = '1';
     ifr.dataset.tabId = tab.id;
-    // Spec 3-c: host 전달 (terminal-upload 가 원격 uploads/ 로 가게)
-    const _h = window.__currentHostId || 'local';
+    // Spec 3-c: host 전달 (terminal-upload 가 원격 uploads/ 로 가게).
+    // BUG FIX: per-tab `tab.host` 를 우선 사용. 전역 __currentHostId 는 마지막에
+    // 선택된 host 라서 picker 로 다른 host 터미널을 골랐을 때 잘못된 host 로
+    // iframe 이 부팅됨 → 원격 첨부가 로컬에 떨어지는 회귀의 원인이었음.
+    const _h = tab.host || window.__currentHostId || 'local';
     const _hp = (_h && _h !== 'local') ? `?host=${encodeURIComponent(_h)}` : '';
     ifr.src = `${BASE}/legacy-terminal${_hp}#${encodeURIComponent(tab.contentRef)}`;
+    ifr.dataset.builtHost = _h;  // F5 복원 시 host mismatch 감지용
     ifr.style.cssText = 'width:100%;height:100%;border:0;display:block;background:var(--bg)';
     hostEl.appendChild(ifr);
-    // F5 복원 시 tab.host 가 없으면 term-hosts 조회해서 라벨 갱신
+    // F5 복원 시 tab.host 가 없으면 term-hosts 조회해서 라벨 갱신.
+    // iframe 이 잘못된 host 로 부팅됐으면 (builtHost mismatch) src 재설정.
     if (!tab.host) {
       fetch(`${BASE}/api/term-hosts`, { credentials: 'same-origin' })
         .then(r => r.ok ? r.json() : {})
         .then(map => {
           const host = map[tab.contentRef] || 'local';
           tabStore.updateTab(tab.id, { host });
+          if (ifr.dataset.builtHost !== host) {
+            const _hp2 = host !== 'local' ? `?host=${encodeURIComponent(host)}` : '';
+            ifr.src = `${BASE}/legacy-terminal${_hp2}#${encodeURIComponent(tab.contentRef)}`;
+            ifr.dataset.builtHost = host;
+          }
           const tabEl = document.querySelector(`[data-tab-id="${tab.id}"]`);
           if (tabEl) {
             const nameEl = tabEl.querySelector('.tab-name');
-            const label = `Terminal ${tab.contentRef}` + (host && host !== 'local' ? ` · ${host}` : '');
+            const label = `Terminal ${tab.contentRef} · ${host}`;
             if (nameEl) nameEl.textContent = label;
             tabEl.title = label;
           }
@@ -337,7 +347,7 @@ window.addEventListener('message', (e) => {
             const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`);
             if (tabEl) {
               const nameEl = tabEl.querySelector('.tab-name');
-              const label = `Terminal ${name}` + (host && host !== 'local' ? ` · ${host}` : '');
+              const label = `Terminal ${name} · ${host}`;
               if (nameEl) nameEl.textContent = label;
               tabEl.title = label;
             }

@@ -4,7 +4,7 @@
 import { BASE, mutFetchOpts } from '../core/api.js';
 import * as tabStore from '../main/tab-store.js';
 import * as layout from '../main/layout.js';
-import { showPicker } from './term-picker.js';
+import { showPicker } from './term-picker.js?v=toggle1';
 
 const JUPYTER = window.__JUPYTER_BASE !== undefined ? window.__JUPYTER_BASE : BASE;
 
