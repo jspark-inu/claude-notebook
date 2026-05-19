@@ -227,12 +227,11 @@ function render() {
       tEl.draggable = true;       // Spec 2: 탭 DnD
       tEl.innerHTML = '<span class="tab-name"></span><span class="tab-close" title="닫기">×</span>';
       // 터미널 탭은 "Terminal N · host" 식으로 라벨 (사용자 요청 — 어떤
-      // 서버 터미널인지 한 눈에). host=local 이면 호스트 부분 생략.
+      // 서버 터미널인지 한 눈에). local 도 항상 표시해서 일관성 유지.
       let label;
       if (t.kind === 'term') {
         const base = t.displayName || `Terminal ${t.contentRef}`;
-        const host = t.host && t.host !== 'local' ? ` · ${t.host}` : '';
-        label = base + host;
+        label = `${base} · ${t.host || 'local'}`;
       } else {
         label = t.displayName || t.contentRef;
       }
