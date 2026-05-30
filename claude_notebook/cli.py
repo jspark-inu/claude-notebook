@@ -88,6 +88,17 @@ def main() -> int:
             # default_url 은 base_url 기준 상대경로 → Jupyter 가 base_url 을
             # 앞에 붙인다 (예: base /notebook + /claude-notebook = /notebook/claude-notebook).
             f.write(f'c.NotebookApp.default_url = {(user_default_url or "/claude-notebook")!r}\n')
+            # CN_REMOTE_ACCESS_FORWARD_v1
+            # When bound to 127.0.0.1 + reverse-proxied, Jupyter's DNS-rebinding
+            # guard 403's any request whose Host header isn't localhost.
+            # tailnet auth already covers external trust, so disable the guard.
+            if nb_user.get('allow_remote_access'):
+                f.write('c.NotebookApp.allow_remote_access = True\n')
+            _lh = nb_user.get('local_hostnames')
+            if _lh:
+                f.write(f'c.NotebookApp.local_hostnames = {list(_lh)!r}\n')
+            if nb_user.get('disable_check_xsrf'):
+                f.write('c.NotebookApp.disable_check_xsrf = True\n')
 
         cmd = [
             sys.executable, "-m", "notebook",
@@ -96,6 +107,7 @@ def main() -> int:
             f"--ip={args.ip}",
             f"--port={args.port}",
             f"--notebook-dir={workspace}",
+            f"--NotebookApp.port_retries=0",
         ]
         # Friendly banner
         print("=" * 60)
