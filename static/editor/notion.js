@@ -1832,15 +1832,20 @@ function setupNotionEditor(editor) {
         // module's own click handler already calls scrollIntoView.
         if (href.startsWith('#')) return;
         e.preventDefault();
-        // For workspace file references (added by rewriteRelativeMediaUrls),
-        // open the in-app preview route — `${BASE}/files#${path}` — so the
-        // target file lands in our overlay instead of streaming the raw
-        // bytes. External URLs keep their original href.
         const wsPath = a.getAttribute('data-workspace-path');
-        const target = wsPath
-            ? `${BASE}/files#${encodeURIComponent(wsPath)}`
-            : href;
-        window.open(target, '_blank', 'noopener,noreferrer');
+        // Internal workspace file → ask outer host (app.js) to open it as a
+        // new in-app file tab (VSCode-style: same window, new editor tab).
+        // The `/files#<path>` route would open a new browser tab, but the
+        // outer app's hash handler treats `#<x>` as a *terminal* name — so
+        // routing through postMessage is the only way internal links work.
+        if (wsPath) {
+            try {
+                window.parent.postMessage({ type: 'cn-open-file', path: wsPath }, '*');
+                return;
+            } catch (_) { /* no parent — fall through */ }
+        }
+        // External URL (or no parent host) — open in a new browser tab.
+        window.open(href, '_blank', 'noopener,noreferrer');
     });
 
     let _isComposing = false;

@@ -280,7 +280,28 @@ if (splitBtn) {
     const activeId = layout.getActiveLeafId();
     layout.addLeafAfter(activeId);
   });
+  splitBtn.title = '활성 패널 분할 (Shift+N)';
 }
+
+// Shift+N → split active leaf. 터미널/입력 요소에 포커스 있으면 무시 —
+// 사용자가 대문자 N 타이핑하는 정상 케이스 보호.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'N' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const el = document.activeElement;
+  if (!el || el === document.body) {
+    // 포커스 없거나 body — 안전, 발동
+  } else {
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (el.isContentEditable) return;
+    // xterm 은 hidden textarea 에 포커스 잡는데 위 가드로 잡힘.
+    // iframe(파일 viewer) 안의 입력은 활성 요소가 iframe 자체로 나옴 —
+    // iframe 안에서 타이핑 중이면 발동 안 하도록 차단.
+    if (tag === 'IFRAME') return;
+  }
+  e.preventDefault();
+  layout.addLeafAfter(layout.getActiveLeafId());
+});
 
 // Files button — 활성 leaf 에 새 Files 탭 (매 클릭마다 새 탭)
 const filesBtn = document.getElementById('files-btn');
@@ -306,6 +327,14 @@ safe('initTermList', () => initTermList({
 // contentRef (탭 타이틀) 업데이트. F5 후 자동 복원도 지원.
 window.addEventListener('message', (e) => {
   if (!e.data) return;
+  // 'files' iframe — 내부 markdown 링크 ctrl/클릭 → outer 가 새 file 탭으로 오픈.
+  // (VSCode 식 동작. iframe 안에서 `/files#path` window.open 으로 새 브라우저
+  // 탭 띄우던 옛 경로는 outer 의 hash handler 가 hash 를 *터미널 이름* 으로
+  // 해석해버려서 깨졌음 — postMessage 라우팅이 유일하게 동작하는 길.)
+  if (e.data.type === 'cn-open-file' && typeof e.data.path === 'string' && e.data.path) {
+    openFileTab(e.data.path);
+    return;
+  }
   // 'files' iframe — 파일 열림 알림 → contentRef = 파일명
   if (e.data.type === 'cn-file-opened') {
     for (const ifr of document.querySelectorAll('iframe[data-files-frame]')) {

@@ -26,6 +26,7 @@ const termInputSend = document.getElementById('termInputSend');
 const renameBtn = document.getElementById('renameBtn');
 const shutdownBtn = document.getElementById('shutdownBtn');
 const chatToggleBtn = document.getElementById('chatToggleBtn');
+const voiceModeBtn = document.getElementById('voiceModeBtn');
 const chatView = document.getElementById('chatView');
 const chatMessages = document.getElementById('chatMessages');
 const chatScrollAnchor = document.getElementById('chatScrollAnchor');
@@ -76,6 +77,16 @@ function getCurrentHost() {
     catch (_) { return 'local'; }
 }
 
+// ===== Voice Conversation Mode (hands-free) =====
+// Toggle telling Claude "input is voice" → Claude replies in <voice>+<notes> format,
+// app speaks only <voice> aloud via Web Speech API. STT is provided by the phone keyboard.
+let voiceMode = (localStorage.getItem('cn-voice-mode') === '1');
+const VM_TTS_DELAY_MS = 1000;          // additional buffer after bubble render
+const VM_FALLBACK_SENTENCES = 3;       // if Claude omits <voice> tag
+const VM_CHUNK_MAX = 180;              // Android Chrome safe TTS chunk size
+let _vmVoicesCache = null;
+let _vmWakeLock = null;
+
 // Server-synced terminal config (slot-based, shared across devices)
 // Format: {slot: {display_name, command}}
 const NAMES_API = BASE + '/api/terminal-names';
@@ -120,6 +131,7 @@ let sentTextFoundLine = -1;
 let phase = 'idle';  // 'idle' | 'finding' | 'waiting'
 let contentHash = '';
 let idleSince = 0;
+let waitStart = 0;     // when phase 'waiting' began — used to hard-cap polling
 const IDLE_MS = 3000;
 
 function isMobileInputMode() {
@@ -1309,6 +1321,8 @@ chatToggleBtn.addEventListener('click', async () => {
 async function chatSendInput() {
     const text = termInputField.value.trim();
     if (!text || !currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+    // Voice mode: cancel any in-flight TTS the moment user starts new turn
+    if (voiceMode) { try { speechSynthesis.cancel(); } catch (e) {} }
     // Upload pending files first (only if message provided)
     let uploadedMeta = '';
     if (termPendingFileList.length) {
@@ -1324,7 +1338,9 @@ async function chatSendInput() {
     if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
     addChatBubble('sent', text);
     showTyping();
-    const fullText = uploadedMeta ? uploadedMeta + '\n' + text : text;
+    // Voice mode: append a short reminder so Claude maintains <voice>/<notes> format across long sessions
+    const vmMarker = voiceMode ? '\n[VM] (음성 입력. <voice>/<notes> 포맷 유지.)' : '';
+    const fullText = (uploadedMeta ? uploadedMeta + '\n' : '') + text + vmMarker;
     sentText = text;
     sentTextFoundLine = -1;
     phase = 'finding';
@@ -1357,6 +1373,7 @@ function pollOutput() {
                 phase = 'waiting';
                 contentHash = '';
                 idleSince = 0;
+                waitStart = Date.now();
                 return;
             }
         }
@@ -1366,7 +1383,11 @@ function pollOutput() {
         return;
     }
 
-    // Phase 2: wait for content to stop changing (3s stable)
+    // Phase 2: wait for content to stop changing (3s stable).
+    // Hard cap: even if content keeps mutating (Claude thinking indicators,
+    // post-response hook errors, etc.), force-finish after MAX_WAIT_MS so the
+    // bubble lands and voice-mode TTS can fire.
+    const MAX_WAIT_MS = 25000;
     if (phase === 'waiting') {
         let h = '';
         for (let i = sentTextFoundLine; i < totalLines; i++) {
@@ -1376,6 +1397,10 @@ function pollOutput() {
         if (h !== contentHash) {
             contentHash = h;
             idleSince = Date.now();
+            if (waitStart && Date.now() - waitStart > MAX_WAIT_MS) {
+                finishOutput(buf, totalLines);
+                return;
+            }
             return;
         }
         if (Date.now() - idleSince < IDLE_MS) return;
@@ -1400,9 +1425,14 @@ function finishOutput(buf, totalLines) {
     const outputHtml = htmlParts.join('\n').replace(/(\n\s*)+$/, '');
     hideTyping();
     if (outputHtml.trim()) addChatBubble('received', '', outputHtml);
+    // Voice mode: speak <voice> portion after a small render-stable buffer
+    if (voiceMode && outputHtml.trim()) {
+        setTimeout(() => vmSpeakResponse(outputHtml), VM_TTS_DELAY_MS);
+    }
     scrollChatToBottom();
     chatLastLine = totalLines;
     phase = 'idle';
+    waitStart = 0;
     // Resume history polling
     if (chatSnapshotTimer) clearInterval(chatSnapshotTimer);
     chatSnapshotTimer = setInterval(() => {
@@ -1443,14 +1473,192 @@ function addChatBubble(type, text, html) {
     bubble.className = 'chat-bubble';
     // received: use rich HTML with colors; sent: plain text
     if (type === 'received' && html) {
-        // Trim trailing empty lines from HTML for cleaner bubble
         let cleanHtml = html.replace(/(\n\s*)+$/, '');
-        bubble.innerHTML = cleanHtml;
+        // Voice mode: visually split <voice>/<notes> if present.
+        // xterm HTML-escapes the literal tags (e.g. `&lt;voice&gt;`), so we test
+        // the decoded plain text rather than the raw html string.
+        if (voiceMode && /<voice>[\s\S]*?<\/voice>/i.test(vmHtmlToText(cleanHtml))) {
+            bubble.innerHTML = vmRenderBubble(cleanHtml);
+        } else {
+            bubble.innerHTML = cleanHtml;
+        }
     } else {
         bubble.textContent = text;
     }
     row.appendChild(bubble);
     chatMessages.appendChild(row);
+}
+
+// ===== Voice Mode: bubble rendering, TTS, wake lock =====
+
+// Parse <voice>...</voice> and <notes>...</notes> from rendered HTML bubble.
+// Strips the literal tag markup (which xterm renders as escaped text) and rewraps
+// the inner content in semantic divs. The notes section becomes a collapsed <details>.
+function vmRenderBubble(html) {
+    // <voice> and <notes> arrive as plain text inside ANSI HTML spans → match on text content.
+    // We use a relaxed regex that allows the tags to be split across <span>s.
+    const plain = vmHtmlToText(html);
+    const voiceMatch = plain.match(/<voice>([\s\S]*?)<\/voice>/i);
+    const notesMatch = plain.match(/<notes>([\s\S]*?)<\/notes>/i);
+    if (!voiceMatch) return html;
+    const voicePart = voiceMatch[1].trim();
+    const notesPart = notesMatch ? notesMatch[1].trim() : '';
+    let out = '<div class="vm-voice">' + esc(voicePart) + '</div>';
+    if (notesPart) {
+        out += '<details class="vm-notes"><summary>📝 상세 노트 (탭하여 펼치기)</summary>' +
+               '<div class="vm-notes-body">' + esc(notesPart) + '</div></details>';
+    }
+    // Append any content outside the tags (e.g. trailing prompts) verbatim
+    const outsideTags = plain
+        .replace(/<voice>[\s\S]*?<\/voice>/i, '')
+        .replace(/<notes>[\s\S]*?<\/notes>/i, '')
+        .trim();
+    if (outsideTags) out += '<div class="vm-outside" style="opacity:0.5;font-size:11px;margin-top:6px">' + esc(outsideTags) + '</div>';
+    return out;
+}
+
+// Extract plain text from ANSI-styled HTML bubble content.
+function vmHtmlToText(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || '';
+}
+
+function vmGetKoreanVoice() {
+    if (_vmVoicesCache) return _vmVoicesCache;
+    if (!('speechSynthesis' in window)) return null;
+    const voices = speechSynthesis.getVoices();
+    if (!voices.length) return null;
+    _vmVoicesCache = voices.find(v => /ko[-_]KR/i.test(v.lang) && /google/i.test(v.name))
+                  || voices.find(v => /ko[-_]KR/i.test(v.lang))
+                  || voices.find(v => /ko/i.test(v.lang))
+                  || null;
+    return _vmVoicesCache;
+}
+
+function vmChunkForTTS(text, max) {
+    const parts = text.split(/(?<=[.!?。!?])\s+/);
+    const out = []; let buf = '';
+    for (const p of parts) {
+        if ((buf + ' ' + p).trim().length > max && buf) { out.push(buf); buf = p; }
+        else buf = buf ? buf + ' ' + p : p;
+    }
+    if (buf) out.push(buf);
+    return out;
+}
+
+function vmSpeakResponse(html) {
+    if (!('speechSynthesis' in window)) return;
+    const plain = vmHtmlToText(html);
+    const m = plain.match(/<voice>([\s\S]*?)<\/voice>/i);
+    let toSpeak;
+    if (m) {
+        toSpeak = m[1].trim();
+    } else {
+        const sentences = plain.split(/(?<=[.!?。!?])\s+/).slice(0, VM_FALLBACK_SENTENCES);
+        toSpeak = sentences.join(' ').slice(0, 400);
+    }
+    if (!toSpeak) return;
+    try { speechSynthesis.cancel(); } catch (e) {}
+    const chunks = vmChunkForTTS(toSpeak, VM_CHUNK_MAX);
+    chunks.forEach(chunk => {
+        const utter = new SpeechSynthesisUtterance(chunk);
+        utter.lang = /[가-힯]/.test(chunk) ? 'ko-KR' : 'en-US';
+        utter.rate = 1.05;
+        utter.pitch = 1.0;
+        const v = vmGetKoreanVoice();
+        if (v && utter.lang.startsWith('ko')) utter.voice = v;
+        speechSynthesis.speak(utter);
+    });
+}
+
+async function vmAcquireWakeLock() {
+    try {
+        if ('wakeLock' in navigator && !_vmWakeLock) {
+            _vmWakeLock = await navigator.wakeLock.request('screen');
+            _vmWakeLock.addEventListener('release', () => { _vmWakeLock = null; });
+        }
+    } catch (e) { /* permission denied or unsupported — ignore */ }
+}
+
+function vmReleaseWakeLock() {
+    if (_vmWakeLock) {
+        try { _vmWakeLock.release(); } catch (e) {}
+        _vmWakeLock = null;
+    }
+}
+
+// Re-acquire wake lock when tab becomes visible again (Chrome auto-releases on hide)
+document.addEventListener('visibilitychange', () => {
+    if (voiceMode && document.visibilityState === 'visible') vmAcquireWakeLock();
+});
+
+// Preload voices list (Android Chrome populates this asynchronously)
+if ('speechSynthesis' in window) {
+    speechSynthesis.onvoiceschanged = () => { _vmVoicesCache = null; vmGetKoreanVoice(); };
+    vmGetKoreanVoice();
+}
+
+function vmSendSetup() {
+    const setup =
+        "[VOICE MODE 시작] 지금부터 내가 보내는 메시지는 폰 마이크로 받아쓰는 거라 다소 어수선할 수 있어. " +
+        "운전/도보 중이라 화면을 못 봐. 매 응답을 다음 두 섹션으로 나눠 줘:\n" +
+        "<voice>한국어 2-3문장. 핵심만, 대화체로. 코드/숫자/긴 목록 금지. TTS로 읽을 거야.</voice>\n" +
+        "<notes>여기에 상세 계획·결정·코드·근거·할 일을 평소처럼 충분히 적어. 운전 끝나고 한 번에 리뷰할 거야.</notes>\n" +
+        "이 포맷 깨면 TTS가 잘못 읽어. 잘 따라 줘. 확인했으면 voice 섹션에 '음성 모드 켰어, 편하게 말해'라고만 답하고 notes는 비워 둬.";
+    vmPushToTerminal(setup);
+}
+
+// Send a message to the running CLI without going through the chat input field.
+function vmPushToTerminal(text) {
+    if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+    addChatBubble('sent', text);
+    showTyping();
+    sentText = text.split('\n')[0].slice(0, 80);  // first line as search anchor
+    sentTextFoundLine = -1;
+    phase = 'finding';
+    contentHash = '';
+    idleSince = 0;
+    if (chatSnapshotTimer) { clearInterval(chatSnapshotTimer); chatSnapshotTimer = null; }
+    currentWs.send(JSON.stringify(["stdin", text]));
+    setTimeout(() => {
+        if (currentWs && currentWs.readyState === WebSocket.OPEN)
+            currentWs.send(JSON.stringify(["stdin", "\r"]));
+    }, 50);
+    chatSnapshotTimer = setInterval(pollOutput, 300);
+    scrollChatToBottom(true);
+}
+
+function vmUpdateButtonUI() {
+    if (!voiceModeBtn) return;
+    voiceModeBtn.classList.toggle('active', voiceMode);
+    voiceModeBtn.setAttribute('aria-pressed', voiceMode ? 'true' : 'false');
+    voiceModeBtn.title = voiceMode ? 'Voice Mode ON (탭하여 끄기)' : 'Voice Conversation Mode (hands-free)';
+}
+
+if (voiceModeBtn) {
+    voiceModeBtn.addEventListener('click', () => {
+        voiceMode = !voiceMode;
+        localStorage.setItem('cn-voice-mode', voiceMode ? '1' : '0');
+        vmUpdateButtonUI();
+        if (voiceMode) {
+            vmAcquireWakeLock();
+            // chat 모드가 꺼져 있으면 함께 켜기 (voice 모드는 chat 위에서만 의미 있음)
+            if (!chatMode && typeof openChat === 'function') openChat();
+            // Setup 메시지는 currentWs가 준비됐을 때만 (없으면 사용자에게 알림)
+            if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+                vmSendSetup();
+            } else {
+                addChatBubble('received', '⚠️ 터미널이 연결돼 있지 않아. 터미널 시작 후 다시 voice 모드를 켜.');
+            }
+        } else {
+            vmReleaseWakeLock();
+            try { speechSynthesis.cancel(); } catch (e) {}
+        }
+    });
+    // Restore state on page load
+    vmUpdateButtonUI();
+    if (voiceMode) vmAcquireWakeLock();
 }
 
 let chatFollow = true;

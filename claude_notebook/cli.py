@@ -66,6 +66,13 @@ def main() -> int:
     nb_user = user_settings.get("NotebookApp", {})
     user_password = nb_user.get("password")
     user_token = nb_user.get("token")
+    user_base_url = nb_user.get("base_url")
+    # 진입점을 claude-notebook 앱으로 고정. 미설정 시 Jupyter 기본값은
+    # `/tree` (raw 파일 브라우저) 라서 base_url 루트로 들어오면 (특히 모바일
+    # 에서 호스트만 북마크한 경우) claude-notebook UI 가 아니라 헤더 없는
+    # 순정 Jupyter tree/terminal 로 떨어진다. default_url 을 앱으로 잡으면
+    # 모든 진입점이 앱으로 redirect 되고, `/tree` 는 직접 치면 여전히 접근 가능.
+    user_default_url = nb_user.get("default_url")
 
     cfg_fd, cfg_path = tempfile.mkstemp(prefix="cn-", suffix="_config.py", text=True)
     try:
@@ -76,6 +83,11 @@ def main() -> int:
                 f.write(f'c.NotebookApp.password = {user_password!r}\n')
             if user_token is not None:
                 f.write(f'c.NotebookApp.token = {user_token!r}\n')
+            if user_base_url:
+                f.write(f'c.NotebookApp.base_url = {user_base_url!r}\n')
+            # default_url 은 base_url 기준 상대경로 → Jupyter 가 base_url 을
+            # 앞에 붙인다 (예: base /notebook + /claude-notebook = /notebook/claude-notebook).
+            f.write(f'c.NotebookApp.default_url = {(user_default_url or "/claude-notebook")!r}\n')
 
         cmd = [
             sys.executable, "-m", "notebook",

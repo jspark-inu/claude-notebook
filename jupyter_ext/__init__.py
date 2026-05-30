@@ -456,10 +456,17 @@ class LegacyTerminalHandler(BaseHandler):
         xsrf = self.get_xsrf_string()
         host = self.get_argument("host", "local")  # Spec 3-c: terminal-upload host 분기용
         html = STATIC_DIR.joinpath("legacy/terminal.html").read_text(encoding="utf-8")
-        # Path replace — copied from original WorkspaceTerminalHandler (lines 412–414)
-        html = html.replace('href="terminal.css"',     f'href="{viewer_base}/static/terminal.css"')
-        html = html.replace('src="keyboard-guard.js"', f'src="{viewer_base}/static/keyboard-guard.js"')
-        html = html.replace('src="terminal.js"',       f'src="{viewer_base}/static/terminal.js"')
+        # Path replace + mtime-based cache buster so mobile browsers can't
+        # serve a stale iframe payload after a deploy.
+        def _v(name):
+            try: return int(os.path.getmtime(STATIC_DIR / name))
+            except OSError: return int(time.time())
+        v_css = _v("terminal.css")
+        v_js  = _v("terminal.js")
+        v_kg  = _v("keyboard-guard.js")
+        html = html.replace('href="terminal.css"',     f'href="{viewer_base}/static/terminal.css?v={v_css}"')
+        html = html.replace('src="keyboard-guard.js"', f'src="{viewer_base}/static/keyboard-guard.js?v={v_kg}"')
+        html = html.replace('src="terminal.js"',       f'src="{viewer_base}/static/terminal.js?v={v_js}"')
         html = self.inject_script(
             html,
             __VIEWER_BASE=viewer_base,

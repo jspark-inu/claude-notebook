@@ -864,6 +864,38 @@ html, body {
     color: #fff;
 }
 
+/* Voice Conversation Mode — visual split for <voice>/<notes> bubble */
+.chat-bubble .vm-voice {
+    font-weight: 600;
+    color: var(--accent, #0969da);
+    padding: 2px 0;
+    white-space: pre-wrap;
+}
+.chat-bubble .vm-notes {
+    margin-top: 6px;
+    opacity: 0.82;
+}
+.chat-bubble .vm-notes > summary {
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-secondary, #8e8e93);
+    user-select: none;
+    padding: 2px 0;
+}
+.chat-bubble .vm-notes > summary:hover { opacity: 1; }
+.chat-bubble .vm-notes[open] > summary { margin-bottom: 4px; }
+.chat-bubble .vm-notes-body { white-space: pre-wrap; }
+.voice-mode-btn.active svg { animation: vm-pulse 1.6s ease-in-out infinite; }
+@keyframes vm-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+/* Mobile: larger touch target for the voice button */
+@media (max-width: 768px) {
+    .voice-mode-btn { min-width: 44px; min-height: 44px; padding: 8px; }
+    .voice-mode-btn svg { width: 20px; height: 20px; }
+}
+
 /* Sidebar toggle */
 .mobile-toggle {
     display: flex;
